@@ -121,12 +121,6 @@ offset_bottom = 90.0
 script = ExtResource("4")
 part_type = "source"
 
-[node name="Label" type="Label" parent="Margin/VBox/Canvas/Source"]
-layout_mode = 2
-mouse_filter = 2
-horizontal_alignment = 1
-vertical_alignment = 1
-text = "SRC"
 
 [node name="Ground" type="PanelContainer" parent="Margin/VBox/Canvas"]
 custom_minimum_size = Vector2(96, 50)
@@ -138,12 +132,6 @@ offset_bottom = 220.0
 script = ExtResource("4")
 part_type = "ground"
 
-[node name="Label" type="Label" parent="Margin/VBox/Canvas/Ground"]
-layout_mode = 2
-mouse_filter = 2
-horizontal_alignment = 1
-vertical_alignment = 1
-text = "GND"
 
 [node name="Output" type="PanelContainer" parent="Margin/VBox/Canvas"]
 custom_minimum_size = Vector2(96, 50)
@@ -155,12 +143,6 @@ offset_bottom = 150.0
 script = ExtResource("4")
 part_type = "output"
 
-[node name="Label" type="Label" parent="Margin/VBox/Canvas/Output"]
-layout_mode = 2
-mouse_filter = 2
-horizontal_alignment = 1
-vertical_alignment = 1
-text = "OUT"
 
 [node name="SelLabel" type="Label" parent="Margin/VBox"]
 unique_name_in_owner = true

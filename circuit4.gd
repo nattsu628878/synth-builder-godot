@@ -23,6 +23,7 @@ var _drive := 1.5
 var _ok := false
 var _out_pos := ""
 var _out_neg := ""
+var _source_names: PackedStringArray = []   # every "source" part's pname, all driven by the oscillator
 var _status := "wire it up"
 
 var _scope_in := PackedFloat32Array()
@@ -71,7 +72,7 @@ func _ready() -> void:
 		if child is Circuit4Part:
 			_canvas.register_part(child)
 			child.pname = ABBR[child.part_type]
-			_name_label(child).text = child.pname
+			child.queue_redraw()
 			_spawn_i += 1
 
 	for btn in _palette.get_children():
@@ -93,17 +94,6 @@ func _ready() -> void:
 	_playback = _audio.get_stream_playback()
 	_recompile()
 
-func _name_label(part: Circuit4Part) -> Label:
-	var lbl: Label = part.get_node_or_null("Label")
-	if lbl == null:
-		lbl = Label.new()
-		lbl.name = "Label"
-		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		part.add_child(lbl)
-	return lbl
-
 func _spawn_part(type: String, pname: String, pos: Vector2, value: float) -> Circuit4Part:
 	var p: Circuit4Part = preload("res://circuit4_part.gd").new()
 	p.custom_minimum_size = Vector2(96, 50)
@@ -113,7 +103,6 @@ func _spawn_part(type: String, pname: String, pos: Vector2, value: float) -> Cir
 	p.pname = pname
 	_canvas.add_child(p)
 	_canvas.register_part(p)
-	_name_label(p).text = pname
 	return p
 
 func _add_part(type: String) -> void:
@@ -245,6 +234,10 @@ func _recompile() -> void:
 	_solver.set_cap_state(cap_state)  # carry unchanged caps' charge across the rebuild
 	_out_pos = res["out_pos"]
 	_out_neg = res["out_neg"]
+	_source_names.clear()
+	for p in _canvas.parts:
+		if p.part_type == "source":
+			_source_names.append(p.pname)
 	_ok = true
 	_status = "compiled: %d nodes, %d components  [%s]" % [
 		res["num_nodes"], res["netlist"].size(), "Rust" if _using_rust else "GDScript"]
@@ -283,10 +276,12 @@ func _on_value_slider(v: float) -> void:
 		part.value = v
 		_solver.set_value(part.pname, v)
 		_sel_label.text = "%s  resistance: %.0f ohm" % [part.pname, v]
+		part.queue_redraw()
 	elif part.part_type == "capacitor":
 		part.value = v * 1.0e-9
 		_solver.set_value(part.pname, part.value)
 		_sel_label.text = "%s  capacitance: %.1f nF" % [part.pname, v]
+		part.queue_redraw()
 
 func _process(_delta: float) -> void:
 	_freq = _freq_slider.value
@@ -308,7 +303,9 @@ func _fill_audio() -> void:
 		var saw := 2.0 * _phase - 1.0
 		var out_v := 0.0
 		if _ok:
-			_solver.set_source("vin", _drive * saw)
+			var vin := _drive * saw
+			for sn in _source_names:
+				_solver.set_source(sn, vin)
 			_solver.step()
 			out_v = _solver.node_voltage(_out_pos) - _solver.node_voltage(_out_neg)
 		var s := clampf(out_v * inv_drive, -1.0, 1.0)

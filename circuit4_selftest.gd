@@ -67,7 +67,7 @@ func _run() -> void:
 	for _i in 44100:
 		phase = fposmod(phase + step, 1.0)
 		var vin := 3.0 * (2.0 * phase - 1.0)
-		solver.set_source("vin", vin)
+		for sn in root._source_names: solver.set_source(sn, vin)
 		solver.step()
 		var v: float = solver.node_voltage(res["out_pos"]) - solver.node_voltage(res["out_neg"])
 		if not is_finite(v):
@@ -92,7 +92,7 @@ func _run() -> void:
 	for _i in 44100:
 		phase = fposmod(phase + step, 1.0)
 		var vin := 3.0 * (2.0 * phase - 1.0)
-		solver2.set_source("vin", vin)
+		for sn in root._source_names: solver2.set_source(sn, vin)
 		solver2.step()
 		var v: float = solver2.node_voltage(res2["out_pos"]) - solver2.node_voltage(res2["out_neg"])
 		mx = maxf(mx, v)
@@ -106,7 +106,7 @@ func _run() -> void:
 	root._drive_slider.value = 3.0
 	root._freq_slider.value = 3.0
 	for _i in 8000:
-		solver2.set_source("vin", 3.0)
+		for sn in root._source_names: solver2.set_source(sn, 3.0)
 		solver2.step()
 	var before: Dictionary = solver2.get_cap_state()
 	root._recompile()  # same topology -> build() + set_cap_state()

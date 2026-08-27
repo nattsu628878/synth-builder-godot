@@ -17,6 +17,7 @@ var selected: Circuit4Part = null
 var _pending := {}             # {} or {part=Circuit4Part, term=int}
 var _name_of := {}             # union-find root -> node name (rebuilt each compile)
 var _ncount := 0
+var _hover_wire := -1          # index of the wire under the cursor (delete on click)
 
 func register_part(p: Circuit4Part) -> void:
 	parts.append(p)
@@ -82,21 +83,32 @@ func _gui_input(event: InputEvent) -> void:
 			queue_redraw()
 		else:
 			_delete_wire_near(event.position)
+	elif event is InputEventMouseMotion and _pending.is_empty():
+		var h := _wire_near(event.position)
+		if h != _hover_wire:
+			_hover_wire = h
+			queue_redraw()
 
 func _process(_delta: float) -> void:
 	if not _pending.is_empty():
 		queue_redraw()  # keep the rubber-band line tracking the mouse (spike #2 fix)
 
-func _delete_wire_near(p: Vector2) -> void:
+func _wire_near(p: Vector2) -> int:
 	for i in range(wires.size() - 1, -1, -1):
 		var w = wires[i]
 		var a: Vector2 = w["a"][0].term_global_pos(w["a"][1]) - global_position
 		var b: Vector2 = w["b"][0].term_global_pos(w["b"][1]) - global_position
 		if _dist_to_seg(p, a, b) <= WIRE_HIT:
-			wires.remove_at(i)
-			topology_changed.emit()
-			queue_redraw()
-			return
+			return i
+	return -1
+
+func _delete_wire_near(p: Vector2) -> void:
+	var i := _wire_near(p)
+	if i != -1:
+		wires.remove_at(i)
+		_hover_wire = -1
+		topology_changed.emit()
+		queue_redraw()
 
 func _dist_to_seg(p: Vector2, a: Vector2, b: Vector2) -> float:
 	var ab := b - a
@@ -157,7 +169,7 @@ func compile_netlist() -> Dictionary:
 			"diode":
 				netlist.append({"type": "D", "nodes": [na, nb]})
 			"source":
-				netlist.append({"type": "V", "name": "vin", "nodes": [na, nb], "value": 0.0})
+				netlist.append({"type": "V", "name": p.pname, "nodes": [na, nb], "value": 0.0})
 				has_source = true
 			"output":
 				out_pos = na
@@ -182,10 +194,15 @@ func compile_netlist() -> Dictionary:
 
 func _draw() -> void:
 	draw_rect(Rect2(Vector2.ZERO, size), Color(0.07, 0.07, 0.09))
-	for w in wires:
+	for i in wires.size():
+		var w = wires[i]
 		var a: Vector2 = w["a"][0].term_global_pos(w["a"][1]) - global_position
 		var b: Vector2 = w["b"][0].term_global_pos(w["b"][1]) - global_position
-		draw_line(a, b, Color(0.85, 0.85, 0.9), 2.0)
+		var col := Color(0.95, 0.4, 0.4) if i == _hover_wire else Color(0.82, 0.84, 0.9)
+		var wide := 3.0 if i == _hover_wire else 2.5
+		draw_line(a, b, col, wide)
+		draw_circle(a, 3.0, col)
+		draw_circle(b, 3.0, col)
 	if not _pending.is_empty():
 		var p: Circuit4Part = _pending["part"]
 		var a: Vector2 = p.term_global_pos(_pending["term"]) - global_position
