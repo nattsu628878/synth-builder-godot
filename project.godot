@@ -14,6 +14,11 @@ config/name="synth-builder-godot"
 run/main_scene="res://game.tscn"
 config/features=PackedStringArray("4.4", "Forward Plus")
 
+[display]
+
+window/size/viewport_width=900
+window/size/viewport_height=740
+
 [rendering]
 
 renderer/rendering_method="mobile"

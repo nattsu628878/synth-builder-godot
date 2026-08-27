@@ -116,6 +116,9 @@ func _ready() -> void:
 	_scope_in.resize(SCOPE_SAMPLES)
 	_scope_out.resize(SCOPE_SAMPLES)
 	_target.resize(SCOPE_SAMPLES)
+	var win := get_window()
+	if win:
+		win.min_size = Vector2i(780, 640)
 
 	if ClassDB.class_exists(RUST_CLASS):
 		_solver = ClassDB.instantiate(RUST_CLASS)
