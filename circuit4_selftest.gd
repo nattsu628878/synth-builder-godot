@@ -118,10 +118,11 @@ func _run() -> void:
 	var bjt_ok: bool = await _check_common_emitter()
 	var ota_ok: bool = await _check_ota_lp()
 	var challenge_ok: bool = await _check_challenge_match()
+	var game_ok: bool = await _check_game_scene()
 
-	var pass_ok := drive_ok and roundtrip_ok and carried and bjt_ok and ota_ok and challenge_ok
-	print("drive_ok=%s  roundtrip_ok=%s  cap_carried=%s  bjt_ok=%s  ota_ok=%s  challenge_ok=%s" % [
-		drive_ok, roundtrip_ok, carried, bjt_ok, ota_ok, challenge_ok])
+	var pass_ok := drive_ok and roundtrip_ok and carried and bjt_ok and ota_ok and challenge_ok and game_ok
+	print("drive_ok=%s roundtrip_ok=%s cap_carried=%s bjt_ok=%s ota_ok=%s challenge_ok=%s game_ok=%s" % [
+		drive_ok, roundtrip_ok, carried, bjt_ok, ota_ok, challenge_ok, game_ok])
 	print("SELFTEST OK" if pass_ok else "SELFTEST FAIL")
 	quit(0 if pass_ok else 1)
 
@@ -312,3 +313,33 @@ func _check_challenge_match() -> bool:
 		all_ok = all_ok and ok
 		root.queue_free()
 	return all_ok
+
+## Smoke-test the promoted game.tscn: it boots without the dev-only patch
+## bar, its game controls resolve, and selecting each challenge pins the
+## drive controls and builds a reference solver.
+func _check_game_scene() -> bool:
+	var scene: PackedScene = load("res://game.tscn")
+	var root := scene.instantiate()
+	get_root().add_child(root)
+	await process_frame
+	await process_frame
+
+	var ui_ok := root.get_node_or_null("%MatchMeter") != null \
+		and root.get_node_or_null("%TargetOption") != null \
+		and root.get_node_or_null("%NextBtn") != null \
+		and root.get_node_or_null("%NeedLabel") != null \
+		and root.get_node_or_null("%PatchName") == null  # dev-only, must be absent
+	var no_crash := root._patch_name == null and root._solver != null
+
+	var pins_ok := true
+	for k in [1, 2, 3]:
+		root._on_target_selected(k)
+		if root._ref_solver == null or root._freq_slider.editable or root._drive_slider.editable:
+			pins_ok = false
+		if root._need_label.text.is_empty():
+			pins_ok = false
+	root._on_next_pressed()  # should cycle without error
+	print("game: ui_ok=%s no_crash=%s pins_ok=%s target_kind_after_next=%d" % [
+		ui_ok, no_crash, pins_ok, root._target_kind])
+	root.queue_free()
+	return ui_ok and no_crash and pins_ok

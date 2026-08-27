@@ -13,6 +13,7 @@ var shape_val := 0.0
 var win_frac := 0.0    # hold progress 0..1
 var solved := false
 var active := false
+var _flash := 0.0      # 1 -> 0 white pulse on solve
 
 func set_state(m: float, s: float, wf: float, sv: bool, on: bool) -> void:
 	match_val = m
@@ -21,6 +22,14 @@ func set_state(m: float, s: float, wf: float, sv: bool, on: bool) -> void:
 	solved = sv
 	active = on
 	queue_redraw()
+
+func pulse() -> void:
+	_flash = 1.0
+
+func _process(delta: float) -> void:
+	if _flash > 0.0:
+		_flash = maxf(_flash - delta * 3.0, 0.0)
+		queue_redraw()
 
 func _draw() -> void:
 	var w := size.x
@@ -40,6 +49,7 @@ func _draw() -> void:
 	var col := Color(0.85, 0.3, 0.3).lerp(Color(0.35, 0.82, 0.42), clampf(mv / WIN_MARK, 0.0, 1.0))
 	if solved:
 		col = Color(0.3, 0.85, 0.45)
+	col = col.lerp(Color.WHITE, _flash * 0.8)
 	draw_rect(Rect2(0, h * 0.12, w * mv, h * 0.42), col)
 	# win threshold tick
 	var tx := w * WIN_MARK

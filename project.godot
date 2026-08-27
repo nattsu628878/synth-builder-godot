@@ -10,8 +10,8 @@ config_version=5
 
 [application]
 
-config/name="synth-builder-godot spike"
-run/main_scene="res://main.tscn"
+config/name="synth-builder-godot"
+run/main_scene="res://game.tscn"
 config/features=PackedStringArray("4.4", "Forward Plus")
 
 [rendering]

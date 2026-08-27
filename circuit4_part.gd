@@ -15,7 +15,7 @@ const TERM_RADIUS := 7.0
 const TERM_HIT := 13.0
 const KNOB_R := 10.0
 const KNOB_SWEEP := 2.35   # radians each side of straight-down
-const KNOB_SENS := 0.006   # value-normalised units per pixel of vertical drag
+const KNOB_SENS := 0.004   # value-normalised units per pixel of vertical drag (Shift = fine)
 
 # parts with an editable value get an on-board knob; [min, max] on a log scale
 const VRANGE := {
@@ -111,7 +111,8 @@ func _gui_input(event: InputEvent) -> void:
 			_knob_drag = false
 	elif event is InputEventMouseMotion:
 		if _knob_drag:
-			_set_norm(_value_norm() - event.relative.y * KNOB_SENS)  # drag up = more
+			var sens := KNOB_SENS * (0.25 if event.shift_pressed else 1.0)  # Shift = fine
+			_set_norm(_value_norm() - event.relative.y * sens)  # drag up = more
 			value_changed.emit(self)
 			queue_redraw()
 			accept_event()

@@ -77,6 +77,9 @@ var _match := 0.0              # smoothed level match, 0..1
 var _shape := 0.0             # smoothed match with a best-fit gain removed
 var _win_time := 0.0
 var _solved := false
+var _solve_fx := false     # rising-edge flag: fire the solve cue once
+var _beep_t := 0.0         # remaining seconds of the solve chime
+var _beep_phase := 0.0
 
 var _count := {"resistor": 0, "capacitor": 0, "diode": 0, "transistor": 0, "ota": 0, "source": 0, "ground": 0, "output": 0}
 var _spawn_i := 0
@@ -97,10 +100,11 @@ const PATCH_DIR := "user://patches"
 @onready var _freq_slider: HSlider = %FreqSlider
 @onready var _drive_slider: HSlider = %DriveSlider
 @onready var _audio: AudioStreamPlayer = %AudioPlayer
-@onready var _patch_name: LineEdit = %PatchName
-@onready var _patch_list: OptionButton = %PatchList
-@onready var _save_btn: Button = %SaveBtn
-@onready var _load_btn: Button = %LoadBtn
+# patch save/load is dev-bench only; game.tscn omits these nodes
+@onready var _patch_name: LineEdit = get_node_or_null("%PatchName")
+@onready var _patch_list: OptionButton = get_node_or_null("%PatchList")
+@onready var _save_btn: Button = get_node_or_null("%SaveBtn")
+@onready var _load_btn: Button = get_node_or_null("%LoadBtn")
 @onready var _target_option: OptionButton = %TargetOption
 @onready var _next_btn: Button = %NextBtn
 @onready var _need_label: Label = %NeedLabel
@@ -136,10 +140,11 @@ func _ready() -> void:
 	_canvas.part_value_changed.connect(_on_part_value_changed)
 	_sel_label.text = "drag a part's knob to set its value  (click a part, Delete removes it)"
 
-	_save_btn.pressed.connect(_save_patch)
-	_load_btn.pressed.connect(_load_patch)
-	DirAccess.make_dir_recursive_absolute(PATCH_DIR)
-	_refresh_patch_list()
+	if _save_btn:
+		_save_btn.pressed.connect(_save_patch)
+		_load_btn.pressed.connect(_load_patch)
+		DirAccess.make_dir_recursive_absolute(PATCH_DIR)
+		_refresh_patch_list()
 
 	_target_option.clear()
 	_target_option.add_item("off")
@@ -186,6 +191,8 @@ func _patch_path(name: String) -> String:
 	return "%s/%s.json" % [PATCH_DIR, name.strip_edges()]
 
 func _save_patch() -> void:
+	if _patch_name == null:
+		return
 	var name := _patch_name.text.strip_edges()
 	if name.is_empty():
 		_status = "name the patch before saving"
@@ -215,7 +222,7 @@ func _save_patch() -> void:
 	_status = "saved '%s' (%d parts, %d wires)" % [name, parts_json.size(), wires_json.size()]
 
 func _load_patch() -> void:
-	if _patch_list.item_count == 0:
+	if _patch_list == null or _patch_list.item_count == 0:
 		return
 	var name := _patch_list.get_item_text(_patch_list.selected)
 	var text := FileAccess.get_file_as_string(_patch_path(name))
@@ -261,6 +268,8 @@ func _trailing_int(s: String) -> int:
 	return int(digits) if not digits.is_empty() else -1
 
 func _refresh_patch_list(select: String = "") -> void:
+	if _patch_list == null:
+		return
 	_patch_list.clear()
 	var d := DirAccess.open(PATCH_DIR)
 	if d == null:
@@ -320,24 +329,20 @@ func _on_part_value_changed(part: Circuit4Part) -> void:
 	if _canvas.selected == part:
 		_sel_label.text = _part_desc(part)
 
-func _process(delta: float) -> void:
+func _process(_delta: float) -> void:
 	_freq = _freq_slider.value
 	_drive = _drive_slider.value
-	_fill_audio()
+	_fill_audio()  # advances _match/_shape and the win latch on the audio clock
 	_scope.set_data(_scope_in, _scope_out)
 	_scope.set_target(_target, _target_kind > 0)
 	_scope.queue_redraw()
 	_status_label.text = _status
 
-	# time-based win latch with hysteresis (fps-independent)
-	if _target_kind > 0 and not _solved:
-		if _match >= WIN_MATCH:
-			_win_time += delta
-			if _win_time >= WIN_HOLD_SEC:
-				_solved = true
-				_need_label.text = "SOLVED ✓   reference:  %s" % CHALLENGES[_target_kind - 1]["hint"]
-		elif _match < WIN_DROP:
-			_win_time = 0.0
+	if _solve_fx:  # rising edge of _solved
+		_solve_fx = false
+		_beep_t = 0.18
+		_match_meter.pulse()
+		_need_label.text = "SOLVED ✓   reference:  %s" % CHALLENGES[_target_kind - 1]["hint"]
 	_match_meter.set_state(_match, _shape, _win_time / WIN_HOLD_SEC, _solved, _target_kind > 0)
 
 func _on_next_pressed() -> void:
@@ -411,7 +416,12 @@ func _fill_audio() -> void:
 			_ref_solver.step()
 			tgt = clampf((_ref_solver.node_voltage(ref_pos) - _ref_solver.node_voltage(ref_neg)) * inv_drive, -1.0, 1.0)
 
-		_playback.push_frame(Vector2(s, s))
+		var out_sample := s
+		if _beep_t > 0.0:  # short decaying chime on solve
+			_beep_phase += 880.0 / SR
+			out_sample = clampf(s * 0.4 + sin(_beep_phase * TAU) * 0.35 * (_beep_t / 0.18), -1.0, 1.0)
+			_beep_t = maxf(_beep_t - 1.0 / SR, 0.0)
+		_playback.push_frame(Vector2(out_sample, out_sample))
 		_scope_in[_sidx] = clampf(saw, -1.0, 1.0)
 		_scope_out[_sidx] = s
 		_target[_sidx] = tgt
@@ -432,4 +442,13 @@ func _fill_audio() -> void:
 		var block_shape := clampf(1.0 - sqrt(maxf(shape_err2, 0.0) / maxf(ref2, 1.0e-6)), 0.0, 1.0)
 		_match += 0.15 * (block_match - _match)
 		_shape += 0.15 * (block_shape - _shape)
+		# win latch on the audio clock (immune to fps and to buffer stalls)
+		if not _solved:
+			if _match >= WIN_MATCH:
+				_win_time += float(frames) / SR
+				if _win_time >= WIN_HOLD_SEC:
+					_solved = true
+					_solve_fx = true
+			elif _match < WIN_DROP:
+				_win_time = 0.0
 	# win latch is time-based, handled in _process
