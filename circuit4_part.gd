@@ -21,6 +21,7 @@ const KNOB_SENS := 0.006   # value-normalised units per pixel of vertical drag
 const VRANGE := {
 	"resistor": [100.0, 100000.0],
 	"capacitor": [1.0e-9, 1.0e-6],
+	"ota": [1.0e-8, 1.0e-5],   # OTA bias current Iabc (sets cutoff)
 }
 
 @export var part_type := ""   # source | resistor | capacitor | diode | ground | output
@@ -52,7 +53,7 @@ func _set_norm(t: float) -> void:
 func term_count() -> int:
 	match part_type:
 		"ground": return 1
-		"transistor": return 3
+		"transistor", "ota": return 3
 		_: return 2
 
 func term_local_pos(i: int) -> Vector2:
@@ -65,6 +66,12 @@ func term_local_pos(i: int) -> Vector2:
 				0: return Vector2(size.x, size.y * 0.22)
 				1: return Vector2(0.0, size.y * 0.5)
 				_: return Vector2(size.x, size.y * 0.78)
+		"ota":
+			# 0 = out (right), 1 = in+ (top-left), 2 = in- (bottom-left)
+			match i:
+				0: return Vector2(size.x, size.y * 0.5)
+				1: return Vector2(0.0, size.y * 0.28)
+				_: return Vector2(0.0, size.y * 0.72)
 		_:
 			return Vector2(0.0, size.y * 0.5) if i == 0 else Vector2(size.x, size.y * 0.5)
 
@@ -124,6 +131,7 @@ func value_text() -> String:
 	match part_type:
 		"resistor": return _fmt_si(value, "ohm")
 		"capacitor": return _fmt_si(value, "F")
+		"ota": return _fmt_si(value, "A")
 		_: return ""
 
 func _fmt_si(v: float, unit: String) -> String:
@@ -144,7 +152,7 @@ func _draw() -> void:
 		draw_rect(Rect2(Vector2.ZERO, size), Color(1.0, 0.85, 0.3), false, 2.0)
 
 	# leads from each terminal toward the glyph
-	if part_type != "ground" and part_type != "transistor":
+	if part_type != "ground" and part_type != "transistor" and part_type != "ota":
 		draw_line(Vector2(0, mid), Vector2(size.x * 0.32, mid), fg, 2.0)
 		draw_line(Vector2(size.x * 0.68, mid), Vector2(size.x, mid), fg, 2.0)
 
@@ -153,6 +161,7 @@ func _draw() -> void:
 		"capacitor": _draw_capacitor(mid, fg)
 		"diode": _draw_diode(mid, fg)
 		"transistor": _draw_transistor(fg)
+		"ota": _draw_ota(fg, accent)
 		"source": _draw_source(mid, accent)
 		"ground": _draw_ground(fg)
 		"output": _draw_output(mid, accent)
@@ -203,6 +212,20 @@ func _draw_diode(mid: float, col: Color) -> void:
 		Vector2(x0, mid - 10), Vector2(x0, mid + 10), Vector2(x1, mid)])
 	draw_colored_polygon(tri, col)
 	draw_line(Vector2(x1, mid - 10), Vector2(x1, mid + 10), col, 2.5)
+
+func _draw_ota(col: Color, accent: Color) -> void:
+	var ax := size.x * 0.28
+	var bx := size.x * 0.80
+	var top := size.y * 0.16
+	var bot := size.y * 0.84
+	var tri := PackedVector2Array([Vector2(ax, top), Vector2(ax, bot), Vector2(bx, size.y * 0.5)])
+	draw_polyline(PackedVector2Array([tri[0], tri[1], tri[2], tri[0]]), col, 2.0)
+	draw_line(term_local_pos(1), Vector2(ax, size.y * 0.28), col, 2.0)
+	draw_line(term_local_pos(2), Vector2(ax, size.y * 0.72), col, 2.0)
+	draw_line(Vector2(bx, size.y * 0.5), term_local_pos(0), col, 2.0)
+	var font := get_theme_default_font()
+	draw_string(font, Vector2(ax + 4, size.y * 0.32), "+", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, accent)
+	draw_string(font, Vector2(ax + 4, size.y * 0.80), "−", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, accent)
 
 func _draw_transistor(col: Color) -> void:
 	var bx := size.x * 0.42

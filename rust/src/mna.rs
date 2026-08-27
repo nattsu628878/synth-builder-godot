@@ -21,6 +21,9 @@ const BJT_IS: f64 = 1.0e-14;
 const BJT_BF: f64 = 200.0;
 const BJT_BR: f64 = 2.0;
 const BJT_VT: f64 = 0.025852;
+
+// OTA (LM13700-ish): Iout = Iabc * tanh((v+ - v-) / (2 Vt))
+const OTA_VT: f64 = 0.025852;
 const NEWTON_MAX_ITERS: i32 = 50;
 const NEWTON_TOL: f64 = 1.0e-7;
 const VLIMIT: f64 = 0.5;
@@ -61,6 +64,9 @@ pub struct Mna {
     q_vbelim: Vec<f64>,
     q_vbclim: Vec<f64>,
     q_vcrit: f64,
+    ota: Vec<(i32, i32, i32)>,      // OTA: out, in+, in-
+    ota_iabc: Vec<f64>,            // bias current (sets gm), parallel to `ota`
+    ota_name: Vec<String>,
     v: Vec<(i32, i32, usize)>,      // p, q, branch index
     v_val: Vec<f64>,                // source values, parallel to `v`
     v_name: Vec<String>,            // parallel to `v`
@@ -87,6 +93,9 @@ impl Mna {
         self.q.clear();
         self.q_vbelim.clear();
         self.q_vbclim.clear();
+        self.ota.clear();
+        self.ota_iabc.clear();
+        self.ota_name.clear();
         self.v.clear();
         self.v_val.clear();
         self.v_name.clear();
@@ -124,6 +133,11 @@ impl Mna {
                 }
                 "D" => self.d.push((ix[0], ix[1])),
                 "Q" => self.q.push((ix[0], ix[1], ix[2])), // collector, base, emitter
+                "OTA" => {
+                    self.ota.push((ix[0], ix[1], ix[2])); // out, in+, in-
+                    self.ota_iabc.push(e.value.unwrap_or(1.0e-4));
+                    self.ota_name.push(e.name.clone().unwrap_or_default());
+                }
                 "V" => {
                     self.v.push((ix[0], ix[1], branch));
                     self.v_val.push(e.value.unwrap_or(0.0));
@@ -202,6 +216,8 @@ impl Mna {
         } else if let Some(i) = self.c_name.iter().position(|n| n == name) {
             self.c[i].3 = value;
             self.refresh_dt();
+        } else if let Some(i) = self.ota_name.iter().position(|n| n == name) {
+            self.ota_iabc[i] = value; // no refresh: OTA is stamped fresh each iteration
         }
     }
 
@@ -260,7 +276,8 @@ impl Mna {
         let w = self.w;
         let n = self.n;
         let rhs = n;
-        let max_iters = if self.d.is_empty() && self.q.is_empty() { 1 } else { NEWTON_MAX_ITERS };
+        let max_iters =
+            if self.d.is_empty() && self.q.is_empty() && self.ota.is_empty() { 1 } else { NEWTON_MAX_ITERS };
         let mut iters = 0;
 
         while iters < max_iters {
@@ -357,6 +374,23 @@ impl Mna {
                 }
                 if ne >= 0 {
                     self.a[ne as usize * w + rhs] += ieq_e;
+                }
+            }
+
+            // OTAs: Iout = Iabc * tanh((v+ - v-) / (2 Vt)) sourced into `out`.
+            for (oi, &(no, np, nn)) in self.ota.iter().enumerate() {
+                let vp = if np < 0 { 0.0 } else { self.x[np as usize] };
+                let vn = if nn < 0 { 0.0 } else { self.x[nn as usize] };
+                let iabc = self.ota_iabc[oi];
+                let u = (vp - vn) / (2.0 * OTA_VT);
+                let th = u.tanh();
+                let iout0 = iabc * th;
+                let g = iabc / (2.0 * OTA_VT) * (1.0 - th * th); // d Iout / d v+
+                // current leaving `out` = -Iout ; Y[out][v+] = -g, Y[out][v-] = +g
+                stamp_y(&mut self.a, w, no, np, -g);
+                stamp_y(&mut self.a, w, no, nn, g);
+                if no >= 0 {
+                    self.a[no as usize * w + rhs] += iout0 - g * (vp - vn);
                 }
             }
 
@@ -567,5 +601,36 @@ mod tests {
         let vc_hi = settle(2.05);
         let gain = (vc_hi - vc) / 0.05;
         assert!(gain < -2.0, "small-signal gain = {gain} (expected inverting, |A|>2)");
+    }
+
+    /// OTA integrator = 1-pole low-pass: in+ = input, in- = out, out -> C to
+    /// gnd. Vout should chase Vin, and a bigger Iabc should track faster.
+    #[test]
+    fn ota_lowpass_tracks_and_iabc_sets_speed() {
+        let lp = |iabc: f64| {
+            vec![
+                RawComp { typ: "V".into(), nodes: vec!["in".into(), "gnd".into()], value: Some(0.0), name: Some("vin".into()) },
+                RawComp { typ: "OTA".into(), nodes: vec!["out".into(), "in".into(), "out".into()], value: Some(iabc), name: Some("ota".into()) },
+                RawComp { typ: "C".into(), nodes: vec!["out".into(), "gnd".into()], value: Some(10.0e-9), name: None },
+            ]
+        };
+        let run = |iabc: f64, n: usize| -> f64 {
+            let mut m = Mna::new();
+            m.build(&lp(iabc), "gnd");
+            m.set_dt(1.0 / 44100.0);
+            m.set_source("vin", 0.02); // 20 mV step, well inside the tanh's linear region
+            for _ in 0..n {
+                m.step();
+            }
+            assert_eq!(m.nonconverged, 0);
+            m.node_voltage("out")
+        };
+        // fc ~ Iabc / (2 Vt) / (2 pi C); at Iabc=3e-7, C=10n that's ~90 Hz
+        let settled = run(3.0e-7, 8820);
+        assert!((settled - 0.02).abs() < 2.0e-3, "settled = {settled}");
+        // early on, more bias current => further along toward the target
+        let fast = run(1.0e-6, 60);
+        let slow = run(2.0e-7, 60);
+        assert!(fast > slow * 1.5, "fast {fast} vs slow {slow} (Iabc should set the rate)");
     }
 }

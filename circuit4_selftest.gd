@@ -116,9 +116,11 @@ func _run() -> void:
 		and absf(before["C0"]) > 0.05 and absf(after["C0"] - before["C0"]) < 1e-6
 
 	var bjt_ok: bool = await _check_common_emitter()
+	var ota_ok: bool = await _check_ota_lp()
 
-	var pass_ok := drive_ok and roundtrip_ok and carried and bjt_ok
-	print("drive_ok=%s  roundtrip_ok=%s  cap_carried=%s  bjt_ok=%s" % [drive_ok, roundtrip_ok, carried, bjt_ok])
+	var pass_ok := drive_ok and roundtrip_ok and carried and bjt_ok and ota_ok
+	print("drive_ok=%s  roundtrip_ok=%s  cap_carried=%s  bjt_ok=%s  ota_ok=%s" % [
+		drive_ok, roundtrip_ok, carried, bjt_ok, ota_ok])
 	print("SELFTEST OK" if pass_ok else "SELFTEST FAIL")
 	quit(0 if pass_ok else 1)
 
@@ -176,3 +178,52 @@ func _check_common_emitter() -> bool:
 	var vc1: float = settle.call(0.1)
 	print("CE: Vc(vin=0)=%.3f  Vc(vin=0.1)=%.3f  gain=%.1f" % [vc0, vc1, (vc1 - vc0) / 0.1])
 	return is_finite(vc0) and vc0 > 0.1 and vc0 < 8.5 and (vc1 - vc0) / 0.1 < -1.0
+
+## Build a 1-pole OTA low-pass through the spike-4 UI path (OTA part with
+## an Iabc knob) and check it low-passes and that Iabc sets the cutoff.
+func _check_ota_lp() -> bool:
+	var scene: PackedScene = load("res://circuit4.tscn")
+	var root := scene.instantiate()
+	get_root().add_child(root)
+	await process_frame
+	await process_frame
+	var canvas: Circuit4Canvas = root.get_node("%Canvas")
+
+	root._add_part("ota")        # OTA0
+	root._add_part("capacitor")  # C0 (integrator cap)
+	var by := {}
+	for p in canvas.parts:
+		by[p.pname] = p
+	var wire := func(a, at, b, bt): canvas.wires.append({"a": [by[a], at], "b": [by[b], bt]})
+	wire.call("SRC", 0, "OTA0", 1)   # input -> in+
+	wire.call("SRC", 1, "GND", 0)
+	wire.call("OTA0", 0, "OTA0", 2)  # out -> in-  (unity-gain follower / integrator)
+	wire.call("OTA0", 0, "C0", 0)    # out -> C
+	wire.call("C0", 1, "GND", 0)
+	wire.call("OUT", 0, "OTA0", 0)   # probe the output
+	wire.call("OUT", 1, "GND", 0)
+	by["C0"].value = 10.0e-9
+
+	var res: Dictionary = canvas.compile_netlist()
+	var has_ota := false
+	for c in res.get("netlist", []):
+		if c["type"] == "OTA":
+			has_ota = true
+	print("OTA: compile ok=%s has_OTA=%s" % [res.get("ok"), has_ota])
+	if not res["ok"] or not has_ota:
+		return false
+	root._recompile()
+	var s: Object = root._solver
+
+	var reach := func(iabc: float, n: int) -> float:
+		s.reset_state()          # start each run from a discharged cap
+		s.set_value("OTA0", iabc)
+		for _i in n:
+			s.set_source("SRC", 0.05)
+			s.step()
+		return s.node_voltage(res["out_pos"]) - s.node_voltage(res["out_neg"])
+	var settled: float = reach.call(3.0e-7, 8820)
+	var fast: float = reach.call(3.0e-6, 60)
+	var slow: float = reach.call(3.0e-7, 60)
+	print("OTA: settled=%.4f  fast60=%.4f  slow60=%.4f" % [settled, fast, slow])
+	return is_finite(settled) and absf(settled - 0.05) < 3.0e-3 and fast > slow * 1.3

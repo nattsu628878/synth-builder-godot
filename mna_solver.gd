@@ -38,6 +38,9 @@ const BJT_IS := 1.0e-14
 const BJT_BF := 200.0
 const BJT_BR := 2.0
 const BJT_VT := 0.025852
+
+# OTA (LM13700-ish): Iout = Iabc * tanh((v+ - v-) / (2 Vt))
+const OTA_VT := 0.025852
 const NEWTON_MAX_ITERS := 50
 const NEWTON_TOL := 1.0e-7
 const VLIMIT := 0.5  # max |delta v| across one Newton iteration (whole vector, scaled)
@@ -79,6 +82,11 @@ var _q_e := PackedInt32Array()
 var _q_vbelim := PackedFloat64Array()
 var _q_vbclim := PackedFloat64Array()
 var _q_vcrit := 0.0
+var _ota_o := PackedInt32Array()   # OTA out / in+ / in- node indices
+var _ota_p := PackedInt32Array()
+var _ota_n := PackedInt32Array()
+var _ota_iabc := PackedFloat64Array()
+var _ota_name := PackedStringArray()
 var _v_p := PackedInt32Array()
 var _v_q := PackedInt32Array()
 var _v_k := PackedInt32Array()        # branch index
@@ -93,7 +101,8 @@ func build(netlist: Array, ground_name: String = "gnd") -> void:
 	_node_idx.clear()
 	_src_name_to_i.clear()
 	for arr in [_r_p, _r_q, _r_g, _r_name, _c_p, _c_q, _c_geq, _c_farad, _c_name, _d_p, _d_q,
-			_q_c, _q_b, _q_e, _v_p, _v_q, _v_k, _v_val, _o_out, _o_vp, _o_vm, _o_k]:
+			_q_c, _q_b, _q_e, _ota_o, _ota_p, _ota_n, _ota_iabc, _ota_name,
+			_v_p, _v_q, _v_k, _v_val, _o_out, _o_vp, _o_vm, _o_k]:
 		arr.clear()
 
 	for c in netlist:
@@ -119,6 +128,10 @@ func build(netlist: Array, ground_name: String = "gnd") -> void:
 				_d_p.append(ix[0]); _d_q.append(ix[1])
 			"Q":
 				_q_c.append(ix[0]); _q_b.append(ix[1]); _q_e.append(ix[2])
+			"OTA":
+				_ota_o.append(ix[0]); _ota_p.append(ix[1]); _ota_n.append(ix[2])
+				_ota_iabc.append(float(c.get("value", 1.0e-4)))
+				_ota_name.append(String(c.get("name", "")))
 			"V":
 				_v_p.append(ix[0]); _v_q.append(ix[1]); _v_k.append(branch)
 				_v_val.append(float(c.get("value", 0.0)))
@@ -187,6 +200,10 @@ func set_value(name: String, value: float) -> void:
 	if i != -1:
 		_c_farad[i] = value
 		_refresh_dt()
+		return
+	i = _ota_name.find(name)
+	if i != -1:
+		_ota_iabc[i] = value  # no refresh: OTA is stamped fresh each iteration
 
 func node_voltage(name: String) -> float:
 	if name == _ground or not _node_idx.has(name):
@@ -259,7 +276,7 @@ func step() -> int:
 	var w := _w
 	var rhs := n  # column index of the augmented RHS
 	var size := _base.size()
-	var max_iters := 1 if (_d_p.is_empty() and _q_c.is_empty()) else NEWTON_MAX_ITERS  # linear -> one solve
+	var max_iters := 1 if (_d_p.is_empty() and _q_c.is_empty() and _ota_o.is_empty()) else NEWTON_MAX_ITERS
 	var iters := 0
 	var i := 0
 	while iters < max_iters:
@@ -360,6 +377,25 @@ func step() -> int:
 				_a[nc * w + rhs] += ieq_c
 			if ne >= 0:
 				_a[ne * w + rhs] += ieq_e
+			i += 1
+
+		# OTAs: Iout = Iabc * tanh((v+ - v-) / (2 Vt)) sourced into `out`
+		i = 0
+		while i < _ota_o.size():
+			var no := _ota_o[i]
+			var np := _ota_p[i]
+			var nn := _ota_n[i]
+			var vp := 0.0 if np < 0 else _x[np]
+			var vn := 0.0 if nn < 0 else _x[nn]
+			var iabc := _ota_iabc[i]
+			var u := (vp - vn) / (2.0 * OTA_VT)
+			var th := tanh(u)
+			var iout0 := iabc * th
+			var g := iabc / (2.0 * OTA_VT) * (1.0 - th * th)
+			_stamp_y(no, np, -g)
+			_stamp_y(no, nn, g)
+			if no >= 0:
+				_a[no * w + rhs] += iout0 - g * (vp - vn)
 			i += 1
 
 		_gauss()

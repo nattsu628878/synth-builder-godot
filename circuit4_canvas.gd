@@ -174,6 +174,8 @@ func compile_netlist() -> Dictionary:
 				netlist.append({"type": "D", "nodes": [nn[0], nn[1]]})
 			"transistor":
 				netlist.append({"type": "Q", "nodes": [nn[0], nn[1], nn[2]]})  # collector, base, emitter
+			"ota":
+				netlist.append({"type": "OTA", "name": p.pname, "nodes": [nn[0], nn[1], nn[2]], "value": p.value})  # out, in+, in-
 			"source":
 				netlist.append({"type": "V", "name": p.pname, "nodes": [nn[0], nn[1]], "value": 0.0})
 				has_source = true

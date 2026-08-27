@@ -60,6 +60,10 @@ text = "+ Diode"
 layout_mode = 2
 text = "+ Transistor"
 
+[node name="Ota" type="Button" parent="Margin/VBox/Palette"]
+layout_mode = 2
+text = "+ OTA"
+
 [node name="Source" type="Button" parent="Margin/VBox/Palette"]
 layout_mode = 2
 text = "+ Source"

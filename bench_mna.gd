@@ -34,6 +34,7 @@ func _init() -> void:
 		["diode clipper + RC        ", _diode_clipper(), "out"],
 		["Sallen-Key LP VCF (linear)", _sallen_key(), "out"],
 		["common-emitter BJT stage  ", _common_emitter(), "col"],
+		["OTA 2-pole LP VCF         ", _ota_vcf(), "out"],
 		["4-stage diode RC ladder   ", _diode_ladder(4), "n4"],
 		["8-stage RC ladder (linear)", _rc_ladder(8), "n8"],
 	]
@@ -75,7 +76,7 @@ func _selfcheck_gd() -> void:
 ## Rust MnaSolverRs vs GDScript MnaSolver, across every benchmark circuit
 func _crosscheck_rust() -> void:
 	var worst_all := 0.0
-	for c in [_diode_clipper(), _sallen_key(), _common_emitter(), _diode_ladder(4), _rc_ladder(8)]:
+	for c in [_diode_clipper(), _sallen_key(), _common_emitter(), _ota_vcf(), _diode_ladder(4), _rc_ladder(8)]:
 		var gd: MnaSolver = MnaSolverScript.new()
 		gd.build(c, "gnd"); gd.set_dt(1.0 / SR)
 		var rs: Object = ClassDB.instantiate("MnaSolverRs")
@@ -88,7 +89,7 @@ func _crosscheck_rust() -> void:
 			var vin := 1.5 * (2.0 * phase - 1.0)
 			gd.set_source("vin", vin); gd.step()
 			rs.set_source("vin", vin); rs.step()
-			for node in ["in", "a", "b", "out", "n1", "n2", "n3", "n4", "vcc", "col", "bas"]:
+			for node in ["in", "a", "b", "out", "n1", "n2", "n3", "n4", "vcc", "col", "bas", "m1"]:
 				if gd.has_node_name(node):
 					worst = maxf(worst, absf(gd.node_voltage(node) - rs.node_voltage(node)))
 		worst_all = maxf(worst_all, worst)
@@ -153,6 +154,16 @@ func _common_emitter() -> Array:
 		{"type": "R", "nodes": ["vcc", "bas"], "value": 470000.0},
 		{"type": "R", "nodes": ["vin", "bas"], "value": 100000.0},
 		{"type": "Q", "nodes": ["col", "bas", "gnd"]},
+	]
+
+## two cascaded OTA integrators = a 2-pole low-pass VCF. Iabc sets cutoff.
+func _ota_vcf() -> Array:
+	return [
+		{"type": "V", "name": "vin", "nodes": ["in", "gnd"], "value": 0.0},
+		{"type": "OTA", "name": "ota1", "nodes": ["m1", "in", "m1"], "value": 3.0e-7},
+		{"type": "C", "nodes": ["m1", "gnd"], "value": 10.0e-9},
+		{"type": "OTA", "name": "ota2", "nodes": ["out", "m1", "out"], "value": 3.0e-7},
+		{"type": "C", "nodes": ["out", "gnd"], "value": 10.0e-9},
 	]
 
 ## unity-gain Sallen-Key low-pass, ~1 kHz, Q ~ 0.7 (C1/C2 = 2, R1 = R2)
