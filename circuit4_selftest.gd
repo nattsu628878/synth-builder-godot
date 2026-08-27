@@ -339,7 +339,21 @@ func _check_game_scene() -> bool:
 		if root._need_label.text.is_empty():
 			pins_ok = false
 	root._on_next_pressed()  # should cycle without error
-	print("game: ui_ok=%s no_crash=%s pins_ok=%s target_kind_after_next=%d" % [
-		ui_ok, no_crash, pins_ok, root._target_kind])
+
+	# Delete on a selected part must work with no dev-only PatchBar present
+	# (regression: _unhandled_input touched a now-null _patch_name).
+	root._on_target_selected(0)
+	root._add_part("resistor")
+	var canvas: Circuit4Canvas = root.get_node("%Canvas")
+	var before_n := canvas.parts.size()
+	canvas._on_body_selected(canvas.parts[-1])
+	var del := InputEventKey.new()
+	del.keycode = KEY_DELETE
+	del.pressed = true
+	root._unhandled_input(del)
+	var delete_ok := canvas.parts.size() == before_n - 1
+
+	print("game: ui_ok=%s no_crash=%s pins_ok=%s delete_ok=%s target_kind_after_next=%d" % [
+		ui_ok, no_crash, pins_ok, delete_ok, root._target_kind])
 	root.queue_free()
-	return ui_ok and no_crash and pins_ok
+	return ui_ok and no_crash and pins_ok and delete_ok

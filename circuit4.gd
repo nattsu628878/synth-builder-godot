@@ -181,7 +181,7 @@ func _add_part(type: String) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_DELETE or event.keycode == KEY_BACKSPACE:
-			if _canvas.selected and not _patch_name.has_focus():
+			if _canvas.selected and not (_patch_name and _patch_name.has_focus()):
 				_canvas.remove_part(_canvas.selected)
 				get_viewport().set_input_as_handled()
 
@@ -341,6 +341,7 @@ func _process(_delta: float) -> void:
 	if _solve_fx:  # rising edge of _solved
 		_solve_fx = false
 		_beep_t = 0.18
+		_beep_phase = 0.0  # start the chime from zero so repeat solves don't click
 		_match_meter.pulse()
 		_need_label.text = "SOLVED ✓   reference:  %s" % CHALLENGES[_target_kind - 1]["hint"]
 	_match_meter.set_state(_match, _shape, _win_time / WIN_HOLD_SEC, _solved, _target_kind > 0)
@@ -451,4 +452,3 @@ func _fill_audio() -> void:
 					_solve_fx = true
 			elif _match < WIN_DROP:
 				_win_time = 0.0
-	# win latch is time-based, handled in _process
