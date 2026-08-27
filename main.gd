@@ -6,13 +6,18 @@ extends Control
 ## So the "circuit" here is a single hand-solved RC low-pass (an ODE
 ## integrated with forward Euler), not a general MNA solver. A sawtooth
 ## oscillator feeds it so the filtering effect is visible on the scope.
+##
+## All UI nodes live in main.tscn (not built in code) so they can be
+## rearranged in the Godot editor -- this script only reads/writes them
+## via unique names (%Name), which keep resolving even if you move nodes
+## around in the tree.
 
 const SAMPLE_RATE := 44100.0
 const SCOPE_SAMPLES := 512
 
 var freq_hz: float = 220.0
 var resistance: float = 1000.0     # ohm
-var capacitance: float = 100.0e-9  # farad (set via slider in nF)
+var capacitance: float = 100.0e-9  # farad (slider is in nF)
 
 var _osc_phase: float = 0.0
 var _vc: float = 0.0  # capacitor voltage = filter output
@@ -21,74 +26,18 @@ var _scope_in: PackedFloat32Array = PackedFloat32Array()
 var _scope_out: PackedFloat32Array = PackedFloat32Array()
 var _scope_write_idx: int = 0
 
-var _scope: Control
-var _freq_slider: HSlider
-var _r_slider: HSlider
-var _c_slider: HSlider
-var _cutoff_label: Label
+@onready var _scope: Control = %Scope
+@onready var _cutoff_label: Label = %CutoffLabel
+@onready var _freq_slider: HSlider = %FreqSlider
+@onready var _r_slider: HSlider = %RSlider
+@onready var _c_slider: HSlider = %CSlider
+@onready var _audio_player: AudioStreamPlayer = %AudioPlayer
 
-var _audio_player: AudioStreamPlayer
 var _playback: AudioStreamGeneratorPlayback
 
 func _ready() -> void:
 	_scope_in.resize(SCOPE_SAMPLES)
 	_scope_out.resize(SCOPE_SAMPLES)
-	_build_ui()
-	_setup_audio()
-
-func _build_ui() -> void:
-	custom_minimum_size = Vector2(820, 560)
-	anchor_right = 1.0
-	anchor_bottom = 1.0
-
-	var margin := MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 16)
-	margin.add_theme_constant_override("margin_top", 16)
-	margin.add_theme_constant_override("margin_right", 16)
-	margin.add_theme_constant_override("margin_bottom", 16)
-	margin.anchor_right = 1.0
-	margin.anchor_bottom = 1.0
-	add_child(margin)
-
-	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 10)
-	margin.add_child(vbox)
-
-	var title := Label.new()
-	title.text = "RC low-pass spike -- sawtooth in, filtered out. Drag the sliders."
-	vbox.add_child(title)
-
-	_scope = preload("res://oscilloscope.gd").new()
-	_scope.custom_minimum_size = Vector2(780, 280)
-	vbox.add_child(_scope)
-
-	_cutoff_label = Label.new()
-	vbox.add_child(_cutoff_label)
-
-	_freq_slider = _add_slider(vbox, "Oscillator frequency (Hz)", 50.0, 2000.0, freq_hz)
-	_r_slider = _add_slider(vbox, "Resistance (ohm)", 100.0, 20000.0, resistance)
-	_c_slider = _add_slider(vbox, "Capacitance (nF)", 1.0, 1000.0, capacitance * 1.0e9)
-
-func _add_slider(parent: Node, label_text: String, min_v: float, max_v: float, default_v: float) -> HSlider:
-	var label := Label.new()
-	label.text = label_text
-	parent.add_child(label)
-	var slider := HSlider.new()
-	slider.min_value = min_v
-	slider.max_value = max_v
-	slider.step = (max_v - min_v) / 200.0
-	slider.value = default_v
-	slider.custom_minimum_size = Vector2(400, 24)
-	parent.add_child(slider)
-	return slider
-
-func _setup_audio() -> void:
-	var gen := AudioStreamGenerator.new()
-	gen.mix_rate = SAMPLE_RATE
-	gen.buffer_length = 0.1
-	_audio_player = AudioStreamPlayer.new()
-	_audio_player.stream = gen
-	add_child(_audio_player)
 	_audio_player.play()
 	_playback = _audio_player.get_stream_playback()
 
