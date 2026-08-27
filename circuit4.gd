@@ -38,6 +38,8 @@ const ABBR := {
 	"source": "SRC", "ground": "GND", "output": "OUT",
 }
 
+const PATCH_DIR := "user://patches"
+
 @onready var _canvas: Circuit4Canvas = %Canvas
 @onready var _palette: HBoxContainer = %Palette
 @onready var _scope: Control = %Scope
@@ -47,6 +49,10 @@ const ABBR := {
 @onready var _freq_slider: HSlider = %FreqSlider
 @onready var _drive_slider: HSlider = %DriveSlider
 @onready var _audio: AudioStreamPlayer = %AudioPlayer
+@onready var _patch_name: LineEdit = %PatchName
+@onready var _patch_list: OptionButton = %PatchList
+@onready var _save_btn: Button = %SaveBtn
+@onready var _load_btn: Button = %LoadBtn
 
 var _playback: AudioStreamGeneratorPlayback
 
@@ -78,6 +84,11 @@ func _ready() -> void:
 	_value_slider.visible = false
 	_sel_label.text = "select a part to edit its value  (Delete removes it)"
 
+	_save_btn.pressed.connect(_save_patch)
+	_load_btn.pressed.connect(_load_patch)
+	DirAccess.make_dir_recursive_absolute(PATCH_DIR)
+	_refresh_patch_list()
+
 	_audio.play()
 	_playback = _audio.get_stream_playback()
 	_recompile()
@@ -93,29 +104,125 @@ func _name_label(part: Circuit4Part) -> Label:
 		part.add_child(lbl)
 	return lbl
 
-func _add_part(type: String) -> void:
+func _spawn_part(type: String, pname: String, pos: Vector2, value: float) -> Circuit4Part:
 	var p: Circuit4Part = preload("res://circuit4_part.gd").new()
 	p.custom_minimum_size = Vector2(96, 50)
 	p.part_type = type
-	if DEFAULTS.has(type):
-		p.value = DEFAULTS[type]
-	var col := _spawn_i % 6
-	var row := (_spawn_i / 6) % 3
-	p.position = Vector2(70.0 + col * 112.0, 20.0 + row * 84.0)
-	_spawn_i += 1
+	p.value = value
+	p.position = pos
+	p.pname = pname
 	_canvas.add_child(p)
 	_canvas.register_part(p)
-	p.pname = "%s%d" % [ABBR[type], _count[type]]
+	_name_label(p).text = pname
+	return p
+
+func _add_part(type: String) -> void:
+	var col := _spawn_i % 6
+	var row := (_spawn_i / 6) % 3
+	_spawn_i += 1
+	var value: float = DEFAULTS.get(type, 0.0)
+	_spawn_part(type, "%s%d" % [ABBR[type], _count[type]], Vector2(70.0 + col * 112.0, 20.0 + row * 84.0), value)
 	_count[type] += 1
-	_name_label(p).text = p.pname
 	_recompile()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_DELETE or event.keycode == KEY_BACKSPACE:
-			if _canvas.selected:
+			if _canvas.selected and not _patch_name.has_focus():
 				_canvas.remove_part(_canvas.selected)
 				get_viewport().set_input_as_handled()
+
+# --- patch save / load (JSON, user://patches/) --------------------------
+
+func _patch_path(name: String) -> String:
+	return "%s/%s.json" % [PATCH_DIR, name.strip_edges()]
+
+func _save_patch() -> void:
+	var name := _patch_name.text.strip_edges()
+	if name.is_empty():
+		_status = "name the patch before saving"
+		return
+	var parts_json := []
+	for p in _canvas.parts:
+		parts_json.append({
+			"pname": p.pname, "type": p.part_type, "value": p.value,
+			"pos": [p.position.x, p.position.y],
+		})
+	var wires_json := []
+	for w in _canvas.wires:
+		wires_json.append({
+			"a": [w["a"][0].pname, w["a"][1]], "b": [w["b"][0].pname, w["b"][1]],
+		})
+	var data := {
+		"version": 1, "parts": parts_json, "wires": wires_json,
+		"drive": _drive_slider.value, "freq": _freq_slider.value,
+	}
+	var f := FileAccess.open(_patch_path(name), FileAccess.WRITE)
+	if f == null:
+		_status = "save failed: %s" % error_string(FileAccess.get_open_error())
+		return
+	f.store_string(JSON.stringify(data, "\t"))
+	f.close()
+	_refresh_patch_list(name)
+	_status = "saved '%s' (%d parts, %d wires)" % [name, parts_json.size(), wires_json.size()]
+
+func _load_patch() -> void:
+	if _patch_list.item_count == 0:
+		return
+	var name := _patch_list.get_item_text(_patch_list.selected)
+	var text := FileAccess.get_file_as_string(_patch_path(name))
+	if text.is_empty():
+		_status = "load failed: %s not readable" % name
+		return
+	var data = JSON.parse_string(text)
+	if typeof(data) != TYPE_DICTIONARY:
+		_status = "load failed: %s is not valid JSON" % name
+		return
+
+	_canvas.clear_all()
+	for k in _count:
+		_count[k] = 0
+	_spawn_i = 0
+
+	var by := {}
+	for pj in data.get("parts", []):
+		var p := _spawn_part(pj["type"], pj["pname"], Vector2(pj["pos"][0], pj["pos"][1]), float(pj["value"]))
+		by[p.pname] = p
+		var idx := _trailing_int(p.pname)
+		if idx >= 0:
+			_count[p.part_type] = maxi(_count[p.part_type], idx + 1)
+		_spawn_i += 1
+	for wj in data.get("wires", []):
+		if by.has(wj["a"][0]) and by.has(wj["b"][0]):
+			_canvas.wires.append({
+				"a": [by[wj["a"][0]], int(wj["a"][1])], "b": [by[wj["b"][0]], int(wj["b"][1])],
+			})
+	_drive_slider.value = data.get("drive", 1.5)
+	_freq_slider.value = data.get("freq", 220.0)
+	_canvas.queue_redraw()
+	_recompile()
+	_status = "loaded '%s' -- %s" % [name, _status]
+
+func _trailing_int(s: String) -> int:
+	var digits := ""
+	for i in range(s.length() - 1, -1, -1):
+		if s[i] >= "0" and s[i] <= "9":
+			digits = s[i] + digits
+		else:
+			break
+	return int(digits) if not digits.is_empty() else -1
+
+func _refresh_patch_list(select: String = "") -> void:
+	_patch_list.clear()
+	var d := DirAccess.open(PATCH_DIR)
+	if d == null:
+		return
+	for fn in d.get_files():
+		if fn.ends_with(".json"):
+			_patch_list.add_item(fn.get_basename())
+	for i in _patch_list.item_count:
+		if _patch_list.get_item_text(i) == select:
+			_patch_list.selected = i
 
 func _recompile() -> void:
 	var res := _canvas.compile_netlist()

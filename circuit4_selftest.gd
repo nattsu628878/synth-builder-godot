@@ -76,6 +76,31 @@ func _run() -> void:
 		min_v = minf(min_v, v)
 	print("driven 1 s @3V:  finite=%s  out max=%.4f V  min=%.4f V" % [finite, max_v, min_v])
 	print("  (single diode: max clamped near a diode drop, min swings free -> asymmetric)")
-	var pass_ok := finite and max_v > 0.3 and max_v < 0.9 and min_v < -1.5
+	var drive_ok := finite and max_v > 0.3 and max_v < 0.9 and min_v < -1.5
+
+	# --- save / load round-trip ---
+	root._patch_name.text = "selftest"
+	root._save_patch()
+	print("save: ", root._status)
+	root._load_patch()
+	print("load: ", root._status)
+	var res2: Dictionary = root._canvas.compile_netlist()
+	var solver2: Object = root._solver
+	var mx := -1e9
+	var mn := 1e9
+	phase = 0.0
+	for _i in 44100:
+		phase = fposmod(phase + step, 1.0)
+		var vin := 3.0 * (2.0 * phase - 1.0)
+		solver2.set_source("vin", vin)
+		solver2.step()
+		var v: float = solver2.node_voltage(res2["out_pos"]) - solver2.node_voltage(res2["out_neg"])
+		mx = maxf(mx, v)
+		mn = minf(mn, v)
+	print("after reload:      out max=%.4f V  min=%.4f V" % [mx, mn])
+	var roundtrip_ok := absf(mx - max_v) < 1e-4 and absf(mn - min_v) < 1e-4
+
+	var pass_ok := drive_ok and roundtrip_ok
+	print("drive_ok=%s  roundtrip_ok=%s" % [drive_ok, roundtrip_ok])
 	print("SELFTEST OK" if pass_ok else "SELFTEST FAIL")
 	quit(0 if pass_ok else 1)

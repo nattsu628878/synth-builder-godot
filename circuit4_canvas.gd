@@ -24,6 +24,15 @@ func register_part(p: Circuit4Part) -> void:
 	p.body_selected.connect(_on_body_selected)
 	p.moved.connect(queue_redraw)
 
+func clear_all() -> void:
+	for p in parts:
+		p.queue_free()
+	parts.clear()
+	wires.clear()
+	selected = null
+	_pending = {}
+	queue_redraw()
+
 func remove_part(p: Circuit4Part) -> void:
 	wires = wires.filter(func(w): return w["a"][0] != p and w["b"][0] != p)
 	parts.erase(p)
