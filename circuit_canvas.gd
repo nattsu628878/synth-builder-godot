@@ -55,7 +55,13 @@ func _gui_input(event: InputEvent) -> void:
 			queue_redraw()
 		else:
 			_try_delete_wire_near(event.position)
-	elif event is InputEventMouseMotion and not _pending.is_empty():
+
+func _process(_delta: float) -> void:
+	# While a wire is pending, its loose end tracks the mouse. _gui_input
+	# stops firing the moment the pointer moves over a block (child controls
+	# consume the motion events), which froze the rubber-band line. Redraw
+	# every frame instead while wiring is in progress.
+	if not _pending.is_empty():
 		queue_redraw()
 
 func _try_delete_wire_near(p: Vector2) -> void:
