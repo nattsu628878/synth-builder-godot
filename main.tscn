@@ -1,7 +1,9 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://main.gd" id="1"]
 [ext_resource type="Script" path="res://oscilloscope.gd" id="2"]
+[ext_resource type="Script" path="res://circuit_canvas.gd" id="3"]
+[ext_resource type="Script" path="res://circuit_block.gd" id="4"]
 
 [sub_resource type="AudioStreamGenerator" id="AudioStreamGenerator_1"]
 mix_rate = 44100.0
@@ -34,18 +36,89 @@ theme_override_constants/separation = 10
 
 [node name="Title" type="Label" parent="Margin/VBox"]
 layout_mode = 2
-text = "RC low-pass spike -- sawtooth in, filtered out. Drag the sliders."
+text = "Drag the blocks. Click an output port (blue) then an input port (yellow) to wire them. Click a wire to delete it."
+autowrap_mode = 2
 
 [node name="Scope" type="Control" parent="Margin/VBox"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(780, 280)
+custom_minimum_size = Vector2(780, 220)
 layout_mode = 2
 script = ExtResource("2")
+
+[node name="StatusLabel" type="Label" parent="Margin/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Wired to output: no -- connect source -> ... -> output"
+
+[node name="Canvas" type="Control" parent="Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(780, 200)
+layout_mode = 2
+clip_contents = true
+script = ExtResource("3")
+
+[node name="SourceBlock" type="PanelContainer" parent="Margin/VBox/Canvas"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(150, 60)
+layout_mode = 0
+offset_left = 20.0
+offset_top = 70.0
+offset_right = 170.0
+offset_bottom = 130.0
+script = ExtResource("4")
+block_type = "source"
+
+[node name="Label" type="Label" parent="Margin/VBox/Canvas/SourceBlock"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+text = "Source
+(sawtooth)"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="RCBlock" type="PanelContainer" parent="Margin/VBox/Canvas"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(150, 60)
+layout_mode = 0
+offset_left = 310.0
+offset_top = 70.0
+offset_right = 460.0
+offset_bottom = 130.0
+script = ExtResource("4")
+block_type = "rc"
+
+[node name="Label" type="Label" parent="Margin/VBox/Canvas/RCBlock"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+text = "RC filter"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="OutputBlock" type="PanelContainer" parent="Margin/VBox/Canvas"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(150, 60)
+layout_mode = 0
+offset_left = 600.0
+offset_top = 70.0
+offset_right = 750.0
+offset_bottom = 130.0
+script = ExtResource("4")
+block_type = "output"
+
+[node name="Label" type="Label" parent="Margin/VBox/Canvas/OutputBlock"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+text = "Output"
+horizontal_alignment = 1
+vertical_alignment = 1
 
 [node name="CutoffLabel" type="Label" parent="Margin/VBox"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Filter cutoff: -- Hz"
+text = "RC block cutoff: -- Hz"
 
 [node name="FreqLabel" type="Label" parent="Margin/VBox"]
 layout_mode = 2
