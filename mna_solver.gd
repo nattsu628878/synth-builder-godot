@@ -137,6 +137,9 @@ func node_voltage(name: String) -> float:
 		return 0.0
 	return _x[int(_node_idx[name])]
 
+func has_node_name(name: String) -> bool:
+	return name == _ground or _node_idx.has(name)
+
 ## rebuild the constant part of the matrix (call after dt or topology change)
 func _refresh_dt() -> void:
 	for i in _c_farad.size():

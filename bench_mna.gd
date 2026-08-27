@@ -1,70 +1,108 @@
 extends SceneTree
 
-## Headless benchmark for the netlist-driven MnaSolver. Run:
-##   godot --headless --script bench_mna.gd
+## Headless benchmark + cross-check for the netlist MNA solver, in both
+## implementations:
+##   - MnaSolver     (mna_solver.gd, pure GDScript -- the golden reference)
+##   - MnaSolverRs   (rust/, GDExtension -- the real-time circuit core)
 ##
-## Times MnaSolver.step() over one second of audio for several circuits of
-## increasing size / nonlinearity, so we can see how the per-sample cost
-## grows with node count and diode count and decide whether GDScript
-## prototyping of the circuit engine stays viable.
+## Run:  godot --headless --script bench_mna.gd
+##
+## Spike #3 showed the GDScript generic solver does not fit the audio
+## budget once a circuit has diodes / oversampling / polyphony. This
+## measures how much headroom the Rust port buys, and checks the two
+## produce the same waveform.
 
 const MnaSolverScript := preload("res://mna_solver.gd")
 const DiodeCircuitScript := preload("res://diode_circuit.gd")
 
 const SR := 44100.0
+const BUDGET_US := 1.0e6 / SR
+
+var _have_rust := false
 
 func _init() -> void:
-	print("MnaSolver headless benchmark  (Godot %s)" % Engine.get_version_info().string)
-	print("budget = %.2f us per audio sample at %.0f Hz\n" % [1.0e6 / SR, SR])
+	_have_rust = ClassDB.class_exists("MnaSolverRs")
+	print("MNA solver benchmark  (Godot %s)" % Engine.get_version_info().string)
+	print("budget = %.2f us / audio sample at %.0f Hz    Rust extension: %s\n" % [
+		BUDGET_US, SR, "loaded" if _have_rust else "NOT LOADED"])
 
-	_selfcheck()
+	_selfcheck_gd()
+	if _have_rust:
+		_crosscheck_rust()
 
-	_run("diode clipper + RC        ", _diode_clipper(), "out", 1.5)
-	_run("Sallen-Key LP VCF (linear)", _sallen_key(), "out", 1.5)
-	_run("4-stage diode RC ladder   ", _diode_ladder(4), "n4", 1.5)
-	_run("8-stage RC ladder (linear)", _rc_ladder(8), "n8", 1.5)
+	var circuits := [
+		["diode clipper + RC        ", _diode_clipper(), "out"],
+		["Sallen-Key LP VCF (linear)", _sallen_key(), "out"],
+		["4-stage diode RC ladder   ", _diode_ladder(4), "n4"],
+		["8-stage RC ladder (linear)", _rc_ladder(8), "n8"],
+	]
+	for engine in (["gd", "rs"] if _have_rust else ["gd"]):
+		print("--- %s ---" % ("GDScript MnaSolver" if engine == "gd" else "Rust MnaSolverRs"))
+		for c in circuits:
+			_run(engine, c[0], c[1], 1.5)
+		print("")
 
-	print("\nRead: 'load' = share of one sample's wall-clock budget spent solving")
-	print("at 1x. Under ~40-50%% with the game still to render = GDScript is fine;")
-	print("crowding 100%% = the circuit engine wants Rust/gdext.")
+	print("Read: 'load' = wall-clock us spent solving per audio sample, over the")
+	print("%.2f us real-time budget. Headroom for oscillator+envelope+game+render" % BUDGET_US)
+	print("means staying well under 100%%, ideally under ~40%% at the oversample")
+	print("factor a nonlinear circuit needs (2x+), times the voice count.")
 	quit()
 
-## Sanity check: the generic solver on the diode-clipper netlist must
-## track the hand-stamped diode_circuit.gd from spike #3 (same circuit,
-## same models). Reports the worst-case sample difference.
-func _selfcheck() -> void:
+# --- correctness -------------------------------------------------------------
+
+## generic GDScript solver vs the hand-stamped diode_circuit.gd from spike #3
+func _selfcheck_gd() -> void:
 	var gen: MnaSolver = MnaSolverScript.new()
 	gen.build(_diode_clipper(), "gnd")
 	gen.set_dt(1.0 / SR)
-	gen.reset_state()
 	var hand := DiodeCircuitScript.new()
 	hand.sample_rate = SR
 	hand.oversample = 1
 	hand.reset()
-
 	var phase := 0.0
 	var step := 220.0 / SR
 	var worst := 0.0
 	for _i in 4000:
-		phase += step
-		if phase >= 1.0:
-			phase -= 1.0
+		phase = fposmod(phase + step, 1.0)
 		var vin := 1.5 * (2.0 * phase - 1.0)
 		gen.set_source("vin", vin)
 		gen.step()
-		var a := gen.node_voltage("out")
-		var b: float = hand.process_sample(vin)
-		worst = maxf(worst, absf(a - b))
-	print("self-check  generic vs hand-stamped diode clipper: worst |dV| = %.9f V  (%s)\n" % [
+		worst = maxf(worst, absf(gen.node_voltage("out") - hand.process_sample(vin)))
+	print("check  GDScript generic vs hand-stamped : worst |dV| = %.9f V  (%s)" % [
 		worst, "OK" if worst < 1.0e-3 else "MISMATCH"])
 
-func _run(label: String, netlist: Array, out_node: String, drive: float) -> void:
+## Rust MnaSolverRs vs GDScript MnaSolver, across every benchmark circuit
+func _crosscheck_rust() -> void:
+	var worst_all := 0.0
+	for c in [_diode_clipper(), _sallen_key(), _diode_ladder(4), _rc_ladder(8)]:
+		var gd: MnaSolver = MnaSolverScript.new()
+		gd.build(c, "gnd"); gd.set_dt(1.0 / SR)
+		var rs: Object = ClassDB.instantiate("MnaSolverRs")
+		rs.build(c, "gnd"); rs.set_dt(1.0 / SR)
+		var phase := 0.0
+		var step := 220.0 / SR
+		var worst := 0.0
+		for _i in 8000:
+			phase = fposmod(phase + step, 1.0)
+			var vin := 1.5 * (2.0 * phase - 1.0)
+			gd.set_source("vin", vin); gd.step()
+			rs.set_source("vin", vin); rs.step()
+			for node in ["in", "a", "b", "out", "n1", "n2", "n3", "n4"]:
+				if gd.has_node_name(node):
+					worst = maxf(worst, absf(gd.node_voltage(node) - rs.node_voltage(node)))
+		worst_all = maxf(worst_all, worst)
+	print("check  Rust MnaSolverRs vs GDScript      : worst |dV| = %.9f V  (%s)\n" % [
+		worst_all, "OK" if worst_all < 1.0e-6 else "MISMATCH"])
+
+# --- timing ----------------------------------------------------------------
+
+func _run(engine: String, label: String, netlist: Array, drive: float) -> void:
 	for os in [1, 2, 4]:
-		var solver: MnaSolver = MnaSolverScript.new()
+		var solver: Object = MnaSolverScript.new() if engine == "gd" else ClassDB.instantiate("MnaSolverRs")
 		solver.build(netlist, "gnd")
 		solver.set_dt(1.0 / (SR * os))
 		solver.reset_state()
-		var total := int(SR)  # 1 s of audio
+		var total := int(SR)
 		var phase := 0.0
 		var step := 220.0 / SR
 		var iter_sum := 0
@@ -78,23 +116,20 @@ func _run(label: String, netlist: Array, out_node: String, drive: float) -> void
 
 		var t0 := Time.get_ticks_usec()
 		for _i in total:
-			phase += step
-			if phase >= 1.0:
-				phase -= 1.0
+			phase = fposmod(phase + step, 1.0)
 			solver.set_source("vin", drive * (2.0 * phase - 1.0))
 			for _s in os:
-				var it := solver.step()
+				var it: int = solver.step()
 				iter_sum += it
-				if it > iter_max:
-					iter_max = it
+				iter_max = maxi(iter_max, it)
 		var elapsed := Time.get_ticks_usec() - t0
 
 		var us := float(elapsed) / float(total)
-		var load := us / (1.0e6 / SR) * 100.0
+		var n_val: int = solver.n if engine == "gd" else solver.get_n()
+		var nonconv: int = solver.nonconverged if engine == "gd" else solver.get_nonconverged()
 		var solves := total * int(os)
-		print("%s  N=%2d  os=%dx  ->  %7.3f us/sample  load %6.1f%%  Newton avg %.2f/max %d  nonconv %d" % [
-			label, solver.n, os, us, load, float(iter_sum) / float(solves), iter_max, solver.nonconverged])
-	print("")
+		print("%s  N=%2d  os=%dx  ->  %8.3f us/sample  load %7.1f%%  Newton avg %.2f/max %d  nonconv %d" % [
+			label, n_val, os, us, us / BUDGET_US * 100.0, float(iter_sum) / float(solves), iter_max, nonconv])
 
 # --- circuits ------------------------------------------------------------
 

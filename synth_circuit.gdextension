@@ -1,0 +1,12 @@
+[configuration]
+entry_symbol = "gdext_rust_init"
+compatibility_minimum = 4.2
+reloadable = true
+
+[libraries]
+macos.debug = "res://rust/target/debug/libsynth_circuit.dylib"
+macos.release = "res://rust/target/release/libsynth_circuit.dylib"
+linux.debug = "res://rust/target/debug/libsynth_circuit.so"
+linux.release = "res://rust/target/release/libsynth_circuit.so"
+windows.debug = "res://rust/target/debug/synth_circuit.dll"
+windows.release = "res://rust/target/release/synth_circuit.dll"

@@ -2,3 +2,6 @@
 *.translation
 export.cfg
 export_presets.cfg
+
+# Rust GDExtension build artifacts (run: cargo build --manifest-path rust/Cargo.toml)
+rust/target/
