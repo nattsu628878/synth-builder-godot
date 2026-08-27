@@ -118,9 +118,19 @@ func _run() -> void:
 	var bjt_ok: bool = await _check_common_emitter()
 	var ota_ok: bool = await _check_ota_lp()
 
-	var pass_ok := drive_ok and roundtrip_ok and carried and bjt_ok and ota_ok
-	print("drive_ok=%s  roundtrip_ok=%s  cap_carried=%s  bjt_ok=%s  ota_ok=%s" % [
-		drive_ok, roundtrip_ok, carried, bjt_ok, ota_ok])
+	# waveform-match target shape formulas
+	root._target_kind = 2
+	var tv_softclip: float = root._target_value(0.5)
+	root._target_kind = 3
+	var tv_halfwave_neg: float = root._target_value(-0.9)
+	var tv_halfwave_pos: float = root._target_value(0.7)
+	var target_ok := absf(tv_softclip - tanh(1.5) / tanh(3.0)) < 1e-6 \
+		and absf(tv_halfwave_neg - (-0.2)) < 1e-6 and absf(tv_halfwave_pos - 0.7) < 1e-6
+	print("target formulas ok=%s" % target_ok)
+
+	var pass_ok := drive_ok and roundtrip_ok and carried and bjt_ok and ota_ok and target_ok
+	print("drive_ok=%s  roundtrip_ok=%s  cap_carried=%s  bjt_ok=%s  ota_ok=%s  target_ok=%s" % [
+		drive_ok, roundtrip_ok, carried, bjt_ok, ota_ok, target_ok])
 	print("SELFTEST OK" if pass_ok else "SELFTEST FAIL")
 	quit(0 if pass_ok else 1)
 

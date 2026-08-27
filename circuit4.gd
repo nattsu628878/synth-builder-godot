@@ -30,6 +30,13 @@ var _scope_in := PackedFloat32Array()
 var _scope_out := PackedFloat32Array()
 var _sidx := 0
 
+# --- waveform-match challenge (North Star: match a target with your circuit) ---
+const TARGETS := ["off", "RC-lowpass saw", "soft-clip saw", "half-wave saw"]
+var _target := PackedFloat32Array()
+var _target_kind := 0
+var _tgt_lp := 0.0        # 1-pole state for the RC-lowpass target
+var _match := 0.0         # smoothed match score, 0..1
+
 var _count := {"resistor": 0, "capacitor": 0, "diode": 0, "transistor": 0, "ota": 0, "source": 0, "ground": 0, "output": 0}
 var _spawn_i := 0
 
@@ -53,12 +60,15 @@ const PATCH_DIR := "user://patches"
 @onready var _patch_list: OptionButton = %PatchList
 @onready var _save_btn: Button = %SaveBtn
 @onready var _load_btn: Button = %LoadBtn
+@onready var _target_option: OptionButton = %TargetOption
+@onready var _match_label: Label = %MatchLabel
 
 var _playback: AudioStreamGeneratorPlayback
 
 func _ready() -> void:
 	_scope_in.resize(SCOPE_SAMPLES)
 	_scope_out.resize(SCOPE_SAMPLES)
+	_target.resize(SCOPE_SAMPLES)
 
 	if ClassDB.class_exists(RUST_CLASS):
 		_solver = ClassDB.instantiate(RUST_CLASS)
@@ -87,6 +97,11 @@ func _ready() -> void:
 	_load_btn.pressed.connect(_load_patch)
 	DirAccess.make_dir_recursive_absolute(PATCH_DIR)
 	_refresh_patch_list()
+
+	_target_option.clear()
+	for t in TARGETS:
+		_target_option.add_item(t)
+	_target_option.item_selected.connect(func(idx): _target_kind = idx)
 
 	_audio.play()
 	_playback = _audio.get_stream_playback()
@@ -264,7 +279,13 @@ func _process(_delta: float) -> void:
 	_drive = _drive_slider.value
 	_fill_audio()
 	_scope.set_data(_scope_in, _scope_out)
+	_scope.set_target(_target, _target_kind > 0)
+	_scope.queue_redraw()
 	_status_label.text = _status
+	if _target_kind > 0:
+		_match_label.text = "match: %d%%   (%s)" % [roundi(_match * 100.0), TARGETS[_target_kind]]
+	else:
+		_match_label.text = "pick a target to score your circuit against it"
 
 func _fill_audio() -> void:
 	if _playback == null:
@@ -272,6 +293,8 @@ func _fill_audio() -> void:
 	var frames := _playback.get_frames_available()
 	var inv_drive := 1.0 / maxf(_drive, 0.01)
 	var step := _freq / SR
+	var err2 := 0.0
+	var ref2 := 0.0
 	for _i in frames:
 		_phase += step
 		if _phase >= 1.0:
@@ -285,7 +308,32 @@ func _fill_audio() -> void:
 			_solver.step()
 			out_v = _solver.node_voltage(_out_pos) - _solver.node_voltage(_out_neg)
 		var s := clampf(out_v * inv_drive, -1.0, 1.0)
+		var tgt := _target_value(saw)
 		_playback.push_frame(Vector2(s, s) if _ok else Vector2.ZERO)
 		_scope_in[_sidx] = clampf(saw, -1.0, 1.0)
 		_scope_out[_sidx] = s if _ok else 0.0
+		_target[_sidx] = tgt
 		_sidx = (_sidx + 1) % SCOPE_SAMPLES
+		if _target_kind > 0:
+			var e := (s if _ok else 0.0) - tgt
+			err2 += e * e
+			ref2 += tgt * tgt
+	if _target_kind > 0 and frames > 0:
+		# 1 - normalised RMS error, smoothed so the meter is readable
+		var block := clampf(1.0 - sqrt(err2 / maxf(ref2, 1.0e-6)), 0.0, 1.0)
+		_match += 0.15 * (block - _match)
+
+## The waveform the player is trying to match, sample-aligned with the
+## live oscillator (so target[i] pairs with scope_out[i]).
+func _target_value(saw: float) -> float:
+	match _target_kind:
+		1:  # saw through a fixed ~600 Hz 1-pole low-pass
+			var a := 1.0 - exp(-TAU * 600.0 / SR)
+			_tgt_lp += a * (saw - _tgt_lp)
+			return _tgt_lp
+		2:  # soft-clipped saw (normalised)
+			return tanh(3.0 * saw) / tanh(3.0)
+		3:  # half-wave-ish: clamp the negative excursion
+			return maxf(saw, -0.2)
+		_:
+			return 0.0
