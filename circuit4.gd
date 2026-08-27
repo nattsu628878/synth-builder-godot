@@ -239,8 +239,10 @@ func _recompile() -> void:
 		_status = "not ready: wire the output probe (+) into the circuit"
 		return
 
+	var cap_state: Dictionary = _solver.get_cap_state() if _ok else {}
 	_solver.build(res["netlist"], "gnd")
 	_solver.set_dt(1.0 / SR)
+	_solver.set_cap_state(cap_state)  # carry unchanged caps' charge across the rebuild
 	_out_pos = res["out_pos"]
 	_out_neg = res["out_neg"]
 	_ok = true

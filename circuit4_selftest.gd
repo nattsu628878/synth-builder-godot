@@ -100,7 +100,22 @@ func _run() -> void:
 	print("after reload:      out max=%.4f V  min=%.4f V" % [mx, mn])
 	var roundtrip_ok := absf(mx - max_v) < 1e-4 and absf(mn - min_v) < 1e-4
 
-	var pass_ok := drive_ok and roundtrip_ok
-	print("drive_ok=%s  roundtrip_ok=%s" % [drive_ok, roundtrip_ok])
+	# --- capacitor state carries across a rebuild (topology change) ---
+	# charge C0 up with a DC-ish drive, snapshot, force a recompile, and
+	# check the cap voltage survived instead of being zeroed (the click).
+	root._drive_slider.value = 3.0
+	root._freq_slider.value = 3.0
+	for _i in 8000:
+		solver2.set_source("vin", 3.0)
+		solver2.step()
+	var before: Dictionary = solver2.get_cap_state()
+	root._recompile()  # same topology -> build() + set_cap_state()
+	var after: Dictionary = root._solver.get_cap_state()
+	print("cap state  before=%s  after recompile=%s" % [before, after])
+	var carried := before.has("C0") and after.has("C0") \
+		and absf(before["C0"]) > 0.05 and absf(after["C0"] - before["C0"]) < 1e-6
+
+	var pass_ok := drive_ok and roundtrip_ok and carried
+	print("drive_ok=%s  roundtrip_ok=%s  cap_carried=%s" % [drive_ok, roundtrip_ok, carried])
 	print("SELFTEST OK" if pass_ok else "SELFTEST FAIL")
 	quit(0 if pass_ok else 1)

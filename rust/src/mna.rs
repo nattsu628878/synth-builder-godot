@@ -41,7 +41,7 @@ pub struct Mna {
     a: Vec<f64>,
     x: Vec<f64>,
     x_new: Vec<f64>,
-    x_prev: Vec<f64>,
+    c_vprev: Vec<f64>, // voltage across each capacitor at the previous step
 
     // typed component tables (indices: -1 == ground)
     r: Vec<(i32, i32, f64)>,        // p, q, 1/R
@@ -128,16 +128,33 @@ impl Mna {
         self.a = vec![0.0; self.n * self.w];
         self.x = vec![0.0; self.n];
         self.x_new = vec![0.0; self.n];
-        self.x_prev = vec![0.0; self.n];
+        self.c_vprev = vec![0.0; self.c.len()];
         self.reset_state();
         self.refresh_dt();
     }
 
     pub fn reset_state(&mut self) {
         self.x.iter_mut().for_each(|v| *v = 0.0);
-        self.x_prev.iter_mut().for_each(|v| *v = 0.0);
+        self.c_vprev.iter_mut().for_each(|v| *v = 0.0);
         self.last_iters = 0;
         self.nonconverged = 0;
+    }
+
+    /// Capacitor voltages keyed by name, so a rebuild (topology change)
+    /// can carry the reactive state of unchanged parts instead of clicking.
+    pub fn get_cap_state(&self) -> Vec<(String, f64)> {
+        self.c_name
+            .iter()
+            .zip(&self.c_vprev)
+            .filter(|(n, _)| !n.is_empty())
+            .map(|(n, &v)| (n.clone(), v))
+            .collect()
+    }
+
+    pub fn set_cap_state(&mut self, name: &str, value: f64) {
+        if let Some(i) = self.c_name.iter().position(|n| n == name) {
+            self.c_vprev[i] = value;
+        }
     }
 
     pub fn set_dt(&mut self, dt: f64) {
@@ -227,10 +244,8 @@ impl Mna {
             self.a.copy_from_slice(&self.base);
 
             // capacitor companion current sources (depend on previous step)
-            for &(p, q, geq, _) in &self.c {
-                let vp = if p < 0 { 0.0 } else { self.x_prev[p as usize] };
-                let vq = if q < 0 { 0.0 } else { self.x_prev[q as usize] };
-                let ieq = geq * (vp - vq);
+            for (ci, &(p, q, geq, _)) in self.c.iter().enumerate() {
+                let ieq = geq * self.c_vprev[ci];
                 if p >= 0 {
                     self.a[p as usize * w + rhs] += ieq;
                 }
@@ -295,7 +310,12 @@ impl Mna {
             self.nonconverged += 1;
         }
         self.last_iters = iters;
-        self.x_prev.copy_from_slice(&self.x);
+        // remember each capacitor's terminal voltage for the next step
+        for (ci, &(p, q, _, _)) in self.c.iter().enumerate() {
+            let vp = if p < 0 { 0.0 } else { self.x[p as usize] };
+            let vq = if q < 0 { 0.0 } else { self.x[q as usize] };
+            self.c_vprev[ci] = vp - vq;
+        }
         iters
     }
 }

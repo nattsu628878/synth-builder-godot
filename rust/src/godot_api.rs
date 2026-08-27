@@ -67,6 +67,26 @@ impl MnaSolverRs {
     }
 
     #[func]
+    fn get_cap_state(&self) -> VarDictionary {
+        let mut d = VarDictionary::new();
+        if let Some(m) = &self.inner {
+            for (name, v) in m.get_cap_state() {
+                d.set(name, v);
+            }
+        }
+        d
+    }
+
+    #[func]
+    fn set_cap_state(&mut self, state: VarDictionary) {
+        if let Some(m) = &mut self.inner {
+            for (k, v) in state.iter_shared() {
+                m.set_cap_state(&k.to::<GString>().to_string(), v.to::<f64>());
+            }
+        }
+    }
+
+    #[func]
     fn node_voltage(&self, name: GString) -> f64 {
         self.inner
             .as_ref()

@@ -51,7 +51,6 @@ var _base := PackedFloat64Array()     # constant part of the augmented matrix
 var _a := PackedFloat64Array()        # working matrix (destroyed by _gauss)
 var _x := PackedFloat64Array()
 var _x_new := PackedFloat64Array()
-var _x_prev := PackedFloat64Array()
 
 # typed component tables (filled by build())
 var _r_p := PackedInt32Array()
@@ -62,7 +61,8 @@ var _c_p := PackedInt32Array()
 var _c_q := PackedInt32Array()
 var _c_geq := PackedFloat64Array()    # C/dt, filled once dt is known
 var _c_farad := PackedFloat64Array()
-var _c_name := PackedStringArray()    # optional, for set_value()
+var _c_name := PackedStringArray()    # optional, for set_value() / get_cap_state()
+var _c_vprev := PackedFloat64Array()  # voltage across each C at the previous step
 var _d_p := PackedInt32Array()
 var _d_q := PackedInt32Array()
 var _v_p := PackedInt32Array()
@@ -118,15 +118,30 @@ func build(netlist: Array, ground_name: String = "gnd") -> void:
 	_w = n + 1
 	_base.resize(n * _w)
 	_a.resize(n * _w)
-	_x.resize(n); _x_new.resize(n); _x_prev.resize(n)
+	_x.resize(n); _x_new.resize(n)
+	_c_vprev.resize(_c_p.size())
 	reset_state()
 	_refresh_dt()
 
 func reset_state() -> void:
 	_x.fill(0.0)
-	_x_prev.fill(0.0)
+	_c_vprev.fill(0.0)
 	last_iters = 0
 	nonconverged = 0
+
+## Capacitor voltages keyed by name -- lets a rebuild (topology change)
+## carry the reactive state of unchanged parts instead of clicking.
+func get_cap_state() -> Dictionary:
+	var d := {}
+	for i in _c_name.size():
+		if _c_name[i] != "":
+			d[_c_name[i]] = _c_vprev[i]
+	return d
+
+func set_cap_state(state: Dictionary) -> void:
+	for i in _c_name.size():
+		if _c_name[i] != "" and state.has(_c_name[i]):
+			_c_vprev[i] = float(state[_c_name[i]])
 
 func set_dt(v: float) -> void:
 	dt = v
@@ -222,8 +237,7 @@ func step() -> int:
 		while i < _c_p.size():
 			var p := _c_p[i]
 			var q := _c_q[i]
-			var vprev := (0.0 if p < 0 else _x_prev[p]) - (0.0 if q < 0 else _x_prev[q])
-			var ieq := _c_geq[i] * vprev
+			var ieq := _c_geq[i] * _c_vprev[i]
 			if p >= 0:
 				_a[p * w + rhs] += ieq
 			if q >= 0:
@@ -294,9 +308,12 @@ func step() -> int:
 	if iters >= NEWTON_MAX_ITERS:
 		nonconverged += 1
 	last_iters = iters
+	# remember each capacitor's terminal voltage for the next step
 	i = 0
-	while i < n:
-		_x_prev[i] = _x[i]
+	while i < _c_p.size():
+		var p := _c_p[i]
+		var q := _c_q[i]
+		_c_vprev[i] = (0.0 if p < 0 else _x[p]) - (0.0 if q < 0 else _x[q])
 		i += 1
 	return iters
 
