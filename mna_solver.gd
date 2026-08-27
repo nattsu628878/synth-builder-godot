@@ -32,6 +32,12 @@ extends RefCounted
 const DIODE_IS := 2.52e-9
 const DIODE_N := 1.752
 const DIODE_VT := 0.025852
+
+# NPN BJT, Ebers-Moll transport form (fixed model, 2N3904-ish)
+const BJT_IS := 1.0e-14
+const BJT_BF := 200.0
+const BJT_BR := 2.0
+const BJT_VT := 0.025852
 const NEWTON_MAX_ITERS := 50
 const NEWTON_TOL := 1.0e-7
 const VLIMIT := 0.5  # max |delta v| across one Newton iteration (whole vector, scaled)
@@ -65,6 +71,14 @@ var _c_name := PackedStringArray()    # optional, for set_value() / get_cap_stat
 var _c_vprev := PackedFloat64Array()  # voltage across each C at the previous step
 var _d_p := PackedInt32Array()
 var _d_q := PackedInt32Array()
+var _d_vlim := PackedFloat64Array()   # last limited junction voltage (SPICE pnjlim)
+var _d_vcrit := 0.0
+var _q_c := PackedInt32Array()   # NPN BJT collector / base / emitter node indices
+var _q_b := PackedInt32Array()
+var _q_e := PackedInt32Array()
+var _q_vbelim := PackedFloat64Array()
+var _q_vbclim := PackedFloat64Array()
+var _q_vcrit := 0.0
 var _v_p := PackedInt32Array()
 var _v_q := PackedInt32Array()
 var _v_k := PackedInt32Array()        # branch index
@@ -79,7 +93,7 @@ func build(netlist: Array, ground_name: String = "gnd") -> void:
 	_node_idx.clear()
 	_src_name_to_i.clear()
 	for arr in [_r_p, _r_q, _r_g, _r_name, _c_p, _c_q, _c_geq, _c_farad, _c_name, _d_p, _d_q,
-			_v_p, _v_q, _v_k, _v_val, _o_out, _o_vp, _o_vm, _o_k]:
+			_q_c, _q_b, _q_e, _v_p, _v_q, _v_k, _v_val, _o_out, _o_vp, _o_vm, _o_k]:
 		arr.clear()
 
 	for c in netlist:
@@ -103,6 +117,8 @@ func build(netlist: Array, ground_name: String = "gnd") -> void:
 				_c_name.append(String(c.get("name", "")))
 			"D":
 				_d_p.append(ix[0]); _d_q.append(ix[1])
+			"Q":
+				_q_c.append(ix[0]); _q_b.append(ix[1]); _q_e.append(ix[2])
 			"V":
 				_v_p.append(ix[0]); _v_q.append(ix[1]); _v_k.append(branch)
 				_v_val.append(float(c.get("value", 0.0)))
@@ -120,11 +136,19 @@ func build(netlist: Array, ground_name: String = "gnd") -> void:
 	_a.resize(n * _w)
 	_x.resize(n); _x_new.resize(n)
 	_c_vprev.resize(_c_p.size())
+	_d_vlim.resize(_d_p.size())
+	_q_vbelim.resize(_q_c.size())
+	_q_vbclim.resize(_q_c.size())
+	_d_vcrit = DIODE_N * DIODE_VT * log(DIODE_N * DIODE_VT / (sqrt(2.0) * DIODE_IS))
+	_q_vcrit = BJT_VT * log(BJT_VT / (sqrt(2.0) * BJT_IS))
 	reset_state()
 	_refresh_dt()
 
 func reset_state() -> void:
 	_x.fill(0.0)
+	_d_vlim.fill(0.0)
+	_q_vbelim.fill(0.0)
+	_q_vbclim.fill(0.0)
 	_c_vprev.fill(0.0)
 	last_iters = 0
 	nonconverged = 0
@@ -215,12 +239,27 @@ func _add_g(m: PackedFloat64Array, p: int, q: int, g: float) -> void:
 		m[p * w + q] -= g
 		m[q * w + p] -= g
 
+## single admittance term Y[i][j] (multiport / non-reciprocal), ground dropped
+func _stamp_y(ri: int, ci: int, y: float) -> void:
+	if ri >= 0 and ci >= 0:
+		_a[ri * _w + ci] += y
+
+## SPICE-style pn-junction limiting: damp the per-iteration change in a
+## junction voltage so exp() can't blow up and Newton doesn't overshoot.
+func _pnjlim(vnew: float, vold: float, vt: float, vcrit: float) -> float:
+	if vnew > vcrit and absf(vnew - vold) > 2.0 * vt:
+		if vold > 0.0:
+			var arg := 1.0 + (vnew - vold) / vt
+			return vold + vt * log(arg) if arg > 0.0 else vcrit
+		return vt * log(vnew / vt)
+	return vnew
+
 ## Advance one timestep dt. Returns Newton iteration count.
 func step() -> int:
 	var w := _w
 	var rhs := n  # column index of the augmented RHS
 	var size := _base.size()
-	var max_iters := 1 if _d_p.is_empty() else NEWTON_MAX_ITERS  # linear -> one solve, no iteration
+	var max_iters := 1 if (_d_p.is_empty() and _q_c.is_empty()) else NEWTON_MAX_ITERS  # linear -> one solve
 	var iters := 0
 	var i := 0
 	while iters < max_iters:
@@ -255,7 +294,9 @@ func step() -> int:
 		while i < _d_p.size():
 			var p := _d_p[i]
 			var q := _d_q[i]
-			var vd := (0.0 if p < 0 else _x[p]) - (0.0 if q < 0 else _x[q])
+			var vd_raw := (0.0 if p < 0 else _x[p]) - (0.0 if q < 0 else _x[q])
+			var vd := _pnjlim(vd_raw, _d_vlim[i], DIODE_N * DIODE_VT, _d_vcrit)
+			_d_vlim[i] = vd
 			var xarg: float = vd / (DIODE_N * DIODE_VT)
 			if xarg > 40.0:
 				xarg = 40.0
@@ -274,6 +315,51 @@ func step() -> int:
 			if p >= 0 and q >= 0:
 				_a[p * w + q] -= gd
 				_a[q * w + p] -= gd
+			i += 1
+
+		# NPN BJTs: Ebers-Moll transport model, Newton-linearised
+		i = 0
+		while i < _q_c.size():
+			var nc := _q_c[i]
+			var nb := _q_b[i]
+			var ne := _q_e[i]
+			var vb := 0.0 if nb < 0 else _x[nb]
+			var vc := 0.0 if nc < 0 else _x[nc]
+			var ve := 0.0 if ne < 0 else _x[ne]
+			var vbe := _pnjlim((vb - ve), _q_vbelim[i], BJT_VT, _q_vcrit)
+			var vbc := _pnjlim((vb - vc), _q_vbclim[i], BJT_VT, _q_vcrit)
+			_q_vbelim[i] = vbe
+			_q_vbclim[i] = vbc
+			var ebe := exp(clampf(vbe / BJT_VT, -40.0, 40.0))
+			var ebc := exp(clampf(vbc / BJT_VT, -40.0, 40.0))
+			var ic0 := BJT_IS * ((ebe - ebc) - (ebc - 1.0) / BJT_BR)
+			var ib0 := BJT_IS * ((ebe - 1.0) / BJT_BF + (ebc - 1.0) / BJT_BR)
+			var gpi := BJT_IS / (BJT_BF * BJT_VT) * ebe
+			var gmu := BJT_IS / (BJT_BR * BJT_VT) * ebc
+			var gmf := BJT_IS / BJT_VT * ebe
+			var gr := -(BJT_IS / BJT_VT) * ebc * (1.0 + 1.0 / BJT_BR)
+			var ybb := gpi + gmu
+			var ybc := -gmu
+			var ybe := -gpi
+			var ycb := gmf + gr
+			var ycc := -gr
+			var yce := -gmf
+			var yeb := -(ybb + ycb)
+			var yec := -(ybc + ycc)
+			var yee := -(ybe + yce)
+			# RHS from the (possibly limited) junction voltages, not the raw nodes
+			var ieq_b := gpi * vbe + gmu * vbc - ib0
+			var ieq_c := gmf * vbe + gr * vbc - ic0
+			var ieq_e := -(ieq_b + ieq_c)
+			_stamp_y(nb, nb, ybb); _stamp_y(nb, nc, ybc); _stamp_y(nb, ne, ybe)
+			_stamp_y(nc, nb, ycb); _stamp_y(nc, nc, ycc); _stamp_y(nc, ne, yce)
+			_stamp_y(ne, nb, yeb); _stamp_y(ne, nc, yec); _stamp_y(ne, ne, yee)
+			if nb >= 0:
+				_a[nb * w + rhs] += ieq_b
+			if nc >= 0:
+				_a[nc * w + rhs] += ieq_c
+			if ne >= 0:
+				_a[ne * w + rhs] += ieq_e
 			i += 1
 
 		_gauss()

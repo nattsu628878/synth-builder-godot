@@ -33,6 +33,7 @@ func _init() -> void:
 	var circuits := [
 		["diode clipper + RC        ", _diode_clipper(), "out"],
 		["Sallen-Key LP VCF (linear)", _sallen_key(), "out"],
+		["common-emitter BJT stage  ", _common_emitter(), "col"],
 		["4-stage diode RC ladder   ", _diode_ladder(4), "n4"],
 		["8-stage RC ladder (linear)", _rc_ladder(8), "n8"],
 	]
@@ -74,7 +75,7 @@ func _selfcheck_gd() -> void:
 ## Rust MnaSolverRs vs GDScript MnaSolver, across every benchmark circuit
 func _crosscheck_rust() -> void:
 	var worst_all := 0.0
-	for c in [_diode_clipper(), _sallen_key(), _diode_ladder(4), _rc_ladder(8)]:
+	for c in [_diode_clipper(), _sallen_key(), _common_emitter(), _diode_ladder(4), _rc_ladder(8)]:
 		var gd: MnaSolver = MnaSolverScript.new()
 		gd.build(c, "gnd"); gd.set_dt(1.0 / SR)
 		var rs: Object = ClassDB.instantiate("MnaSolverRs")
@@ -87,7 +88,7 @@ func _crosscheck_rust() -> void:
 			var vin := 1.5 * (2.0 * phase - 1.0)
 			gd.set_source("vin", vin); gd.step()
 			rs.set_source("vin", vin); rs.step()
-			for node in ["in", "a", "b", "out", "n1", "n2", "n3", "n4"]:
+			for node in ["in", "a", "b", "out", "n1", "n2", "n3", "n4", "vcc", "col", "bas"]:
 				if gd.has_node_name(node):
 					worst = maxf(worst, absf(gd.node_voltage(node) - rs.node_voltage(node)))
 		worst_all = maxf(worst_all, worst)
@@ -140,6 +141,18 @@ func _diode_clipper() -> Array:
 		{"type": "C", "nodes": ["out", "gnd"], "value": 10.0e-9},
 		{"type": "D", "nodes": ["out", "gnd"]},
 		{"type": "D", "nodes": ["gnd", "out"]},
+	]
+
+## common-emitter NPN stage: Vcc/Rc load, base biased by a divider from
+## Vcc, ac in through Rb. Output at the collector.
+func _common_emitter() -> Array:
+	return [
+		{"type": "V", "name": "vcc", "nodes": ["vcc", "gnd"], "value": 9.0},
+		{"type": "V", "name": "vin", "nodes": ["vin", "gnd"], "value": 0.0},
+		{"type": "R", "nodes": ["vcc", "col"], "value": 2000.0},
+		{"type": "R", "nodes": ["vcc", "bas"], "value": 470000.0},
+		{"type": "R", "nodes": ["vin", "bas"], "value": 100000.0},
+		{"type": "Q", "nodes": ["col", "bas", "gnd"]},
 	]
 
 ## unity-gain Sallen-Key low-pass, ~1 kHz, Q ~ 0.7 (C1/C2 = 2, R1 = R2)

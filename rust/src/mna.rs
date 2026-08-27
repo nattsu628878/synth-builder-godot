@@ -15,6 +15,12 @@ use std::collections::HashMap;
 const DIODE_IS: f64 = 2.52e-9;
 const DIODE_N: f64 = 1.752;
 const DIODE_VT: f64 = 0.025852;
+
+// NPN BJT, Ebers-Moll transport form (fixed model, 2N3904-ish)
+const BJT_IS: f64 = 1.0e-14;
+const BJT_BF: f64 = 200.0;
+const BJT_BR: f64 = 2.0;
+const BJT_VT: f64 = 0.025852;
 const NEWTON_MAX_ITERS: i32 = 50;
 const NEWTON_TOL: f64 = 1.0e-7;
 const VLIMIT: f64 = 0.5;
@@ -49,6 +55,12 @@ pub struct Mna {
     c: Vec<(i32, i32, f64, f64)>,   // p, q, Geq (=C/dt), farad
     c_name: Vec<String>,            // parallel to `c`
     d: Vec<(i32, i32)>,             // anode, cathode
+    d_vlim: Vec<f64>,               // last limited junction voltage (SPICE pnjlim)
+    d_vcrit: f64,
+    q: Vec<(i32, i32, i32)>,        // NPN BJT: collector, base, emitter
+    q_vbelim: Vec<f64>,
+    q_vbclim: Vec<f64>,
+    q_vcrit: f64,
     v: Vec<(i32, i32, usize)>,      // p, q, branch index
     v_val: Vec<f64>,                // source values, parallel to `v`
     v_name: Vec<String>,            // parallel to `v`
@@ -71,6 +83,10 @@ impl Mna {
         self.c.clear();
         self.c_name.clear();
         self.d.clear();
+        self.d_vlim.clear();
+        self.q.clear();
+        self.q_vbelim.clear();
+        self.q_vbclim.clear();
         self.v.clear();
         self.v_val.clear();
         self.v_name.clear();
@@ -107,6 +123,7 @@ impl Mna {
                     self.c_name.push(e.name.clone().unwrap_or_default());
                 }
                 "D" => self.d.push((ix[0], ix[1])),
+                "Q" => self.q.push((ix[0], ix[1], ix[2])), // collector, base, emitter
                 "V" => {
                     self.v.push((ix[0], ix[1], branch));
                     self.v_val.push(e.value.unwrap_or(0.0));
@@ -129,6 +146,11 @@ impl Mna {
         self.x = vec![0.0; self.n];
         self.x_new = vec![0.0; self.n];
         self.c_vprev = vec![0.0; self.c.len()];
+        self.d_vlim = vec![0.0; self.d.len()];
+        self.q_vbelim = vec![0.0; self.q.len()];
+        self.q_vbclim = vec![0.0; self.q.len()];
+        self.d_vcrit = DIODE_N * DIODE_VT * (DIODE_N * DIODE_VT / (2.0_f64.sqrt() * DIODE_IS)).ln();
+        self.q_vcrit = BJT_VT * (BJT_VT / (2.0_f64.sqrt() * BJT_IS)).ln();
         self.reset_state();
         self.refresh_dt();
     }
@@ -136,6 +158,9 @@ impl Mna {
     pub fn reset_state(&mut self) {
         self.x.iter_mut().for_each(|v| *v = 0.0);
         self.c_vprev.iter_mut().for_each(|v| *v = 0.0);
+        self.d_vlim.iter_mut().for_each(|v| *v = 0.0);
+        self.q_vbelim.iter_mut().for_each(|v| *v = 0.0);
+        self.q_vbclim.iter_mut().for_each(|v| *v = 0.0);
         self.last_iters = 0;
         self.nonconverged = 0;
     }
@@ -235,7 +260,7 @@ impl Mna {
         let w = self.w;
         let n = self.n;
         let rhs = n;
-        let max_iters = if self.d.is_empty() { 1 } else { NEWTON_MAX_ITERS };
+        let max_iters = if self.d.is_empty() && self.q.is_empty() { 1 } else { NEWTON_MAX_ITERS };
         let mut iters = 0;
 
         while iters < max_iters {
@@ -260,10 +285,11 @@ impl Mna {
             }
 
             // diodes: Newton-linearised around the current guess x
-            for &(p, q) in &self.d {
+            for (di, &(p, q)) in self.d.iter().enumerate() {
                 let vpv = if p < 0 { 0.0 } else { self.x[p as usize] };
                 let vqv = if q < 0 { 0.0 } else { self.x[q as usize] };
-                let vd = vpv - vqv;
+                let vd = pnjlim(vpv - vqv, self.d_vlim[di], DIODE_N * DIODE_VT, self.d_vcrit);
+                self.d_vlim[di] = vd;
                 let xarg = (vd / (DIODE_N * DIODE_VT)).clamp(-40.0, 40.0);
                 let e = xarg.exp();
                 let id = DIODE_IS * (e - 1.0);
@@ -280,6 +306,57 @@ impl Mna {
                 if p >= 0 && q >= 0 {
                     self.a[p as usize * w + q as usize] -= gd;
                     self.a[q as usize * w + p as usize] -= gd;
+                }
+            }
+
+            // NPN BJTs: Ebers-Moll transport model, Newton-linearised.
+            for (qi, &(nc, nb, ne)) in self.q.iter().enumerate() {
+                let vb = if nb < 0 { 0.0 } else { self.x[nb as usize] };
+                let vc = if nc < 0 { 0.0 } else { self.x[nc as usize] };
+                let ve = if ne < 0 { 0.0 } else { self.x[ne as usize] };
+                let vbe = pnjlim(vb - ve, self.q_vbelim[qi], BJT_VT, self.q_vcrit);
+                let vbc = pnjlim(vb - vc, self.q_vbclim[qi], BJT_VT, self.q_vcrit);
+                self.q_vbelim[qi] = vbe;
+                self.q_vbclim[qi] = vbc;
+                let ebe = (vbe / BJT_VT).clamp(-40.0, 40.0).exp();
+                let ebc = (vbc / BJT_VT).clamp(-40.0, 40.0).exp();
+                let ic0 = BJT_IS * ((ebe - ebc) - (ebc - 1.0) / BJT_BR);
+                let ib0 = BJT_IS * ((ebe - 1.0) / BJT_BF + (ebc - 1.0) / BJT_BR);
+                let gpi = BJT_IS / (BJT_BF * BJT_VT) * ebe; // d ib / d Vbe
+                let gmu = BJT_IS / (BJT_BR * BJT_VT) * ebc; // d ib / d Vbc
+                let gmf = BJT_IS / BJT_VT * ebe; // d ic / d Vbe
+                let gr = -(BJT_IS / BJT_VT) * ebc * (1.0 + 1.0 / BJT_BR); // d ic / d Vbc (<= 0)
+                // Y[i][j] = d I_i / d V_j, i,j in {b,c,e}; I_e = -(I_b + I_c)
+                let ybb = gpi + gmu;
+                let ybc = -gmu;
+                let ybe = -gpi;
+                let ycb = gmf + gr;
+                let ycc = -gr;
+                let yce = -gmf;
+                let yeb = -(ybb + ycb);
+                let yec = -(ybc + ycc);
+                let yee = -(ybe + yce);
+                // RHS from the (possibly limited) junction voltages, not raw nodes
+                let ieq_b = gpi * vbe + gmu * vbc - ib0;
+                let ieq_c = gmf * vbe + gr * vbc - ic0;
+                let ieq_e = -(ieq_b + ieq_c);
+                stamp_y(&mut self.a, w, nb, nb, ybb);
+                stamp_y(&mut self.a, w, nb, nc, ybc);
+                stamp_y(&mut self.a, w, nb, ne, ybe);
+                stamp_y(&mut self.a, w, nc, nb, ycb);
+                stamp_y(&mut self.a, w, nc, nc, ycc);
+                stamp_y(&mut self.a, w, nc, ne, yce);
+                stamp_y(&mut self.a, w, ne, nb, yeb);
+                stamp_y(&mut self.a, w, ne, nc, yec);
+                stamp_y(&mut self.a, w, ne, ne, yee);
+                if nb >= 0 {
+                    self.a[nb as usize * w + rhs] += ieq_b;
+                }
+                if nc >= 0 {
+                    self.a[nc as usize * w + rhs] += ieq_c;
+                }
+                if ne >= 0 {
+                    self.a[ne as usize * w + rhs] += ieq_e;
                 }
             }
 
@@ -317,6 +394,33 @@ impl Mna {
             self.c_vprev[ci] = vp - vq;
         }
         iters
+    }
+}
+
+/// Add a single admittance term Y[i][j] (multiport / non-reciprocal), with
+/// ground (index < 0) rows and columns dropped.
+fn stamp_y(a: &mut [f64], w: usize, i: i32, j: i32, y: f64) {
+    if i >= 0 && j >= 0 {
+        a[i as usize * w + j as usize] += y;
+    }
+}
+
+/// SPICE-style pn-junction limiting: damp the per-iteration change in a
+/// junction voltage so exp() can't blow up and Newton doesn't overshoot.
+fn pnjlim(vnew: f64, vold: f64, vt: f64, vcrit: f64) -> f64 {
+    if vnew > vcrit && (vnew - vold).abs() > 2.0 * vt {
+        if vold > 0.0 {
+            let arg = 1.0 + (vnew - vold) / vt;
+            if arg > 0.0 {
+                vold + vt * arg.ln()
+            } else {
+                vcrit
+            }
+        } else {
+            vt * (vnew / vt).ln()
+        }
+    } else {
+        vnew
     }
 }
 
@@ -430,5 +534,38 @@ mod tests {
         }
         // RC settled to the 1 V rail
         assert!((m.node_voltage("out") - 1.0).abs() < 1.0e-3);
+    }
+
+    /// Common-emitter stage: Vcc=9V -> Rc=2k -> collector; Vbb -> Rb=100k ->
+    /// base; emitter to ground. The transistor should turn on (Vc well below
+    /// Vcc, not saturated) and invert + amplify a base-voltage wiggle.
+    #[test]
+    fn common_emitter_amplifies_and_inverts() {
+        let ce = |vbb: f64| {
+            vec![
+                RawComp { typ: "V".into(), nodes: vec!["vcc".into(), "gnd".into()], value: Some(9.0), name: Some("vcc".into()) },
+                RawComp { typ: "V".into(), nodes: vec!["vbb".into(), "gnd".into()], value: Some(vbb), name: Some("vbb".into()) },
+                RawComp { typ: "R".into(), nodes: vec!["vcc".into(), "col".into()], value: Some(2000.0), name: None },
+                RawComp { typ: "R".into(), nodes: vec!["vbb".into(), "bas".into()], value: Some(100000.0), name: None },
+                RawComp { typ: "Q".into(), nodes: vec!["col".into(), "bas".into(), "gnd".into()], value: None, name: None },
+            ]
+        };
+        let settle = |vbb: f64| -> f64 {
+            let mut m = Mna::new();
+            m.build(&ce(vbb), "gnd");
+            m.set_dt(1.0 / 44100.0);
+            for _ in 0..4410 {
+                m.step();
+            }
+            assert_eq!(m.nonconverged, 0);
+            m.node_voltage("col")
+        };
+        let vc = settle(2.0);
+        assert!(vc.is_finite());
+        assert!(vc > 0.05 && vc < 8.5, "Vc = {vc} (should be on, not saturated/off)");
+        // raising the base drives more Ic -> collector falls (inverting gain > 1)
+        let vc_hi = settle(2.05);
+        let gain = (vc_hi - vc) / 0.05;
+        assert!(gain < -2.0, "small-signal gain = {gain} (expected inverting, |A|>2)");
     }
 }
