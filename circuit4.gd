@@ -36,7 +36,8 @@ var _sidx := 0
 const CHALLENGES := [
 	{
 		"name": "RC low-pass", "freq": 220.0, "drive": 1.5, "out_pos": "out", "out_neg": "gnd",
-		"hint": "SRC -> R(10k) -> out ;  C(22nF) out -> GND",
+		"need": "needs: 1 resistor + 1 capacitor   —   SRC → R → OUT,  C from OUT to GND",
+		"hint": "SRC → R(10k) → OUT ;  C(22nF) OUT → GND",
 		"netlist": [
 			{"type": "V", "name": "vin", "nodes": ["in", "gnd"], "value": 0.0},
 			{"type": "R", "nodes": ["in", "out"], "value": 10000.0},
@@ -45,7 +46,8 @@ const CHALLENGES := [
 	},
 	{
 		"name": "diode soft-clip", "freq": 220.0, "drive": 2.5, "out_pos": "out", "out_neg": "gnd",
-		"hint": "SRC -> R(4.7k) -> out ;  two diodes out<->GND (anti-parallel)",
+		"need": "needs: 1 resistor + 2 diodes   —   SRC → R → OUT,  two diodes OUT↔GND facing opposite ways",
+		"hint": "SRC → R(4.7k) → OUT ;  two diodes OUT↔GND (anti-parallel)",
 		"netlist": [
 			{"type": "V", "name": "vin", "nodes": ["in", "gnd"], "value": 0.0},
 			{"type": "R", "nodes": ["in", "out"], "value": 4700.0},
@@ -55,7 +57,8 @@ const CHALLENGES := [
 	},
 	{
 		"name": "half-wave rectify", "freq": 220.0, "drive": 2.5, "out_pos": "out", "out_neg": "gnd",
-		"hint": "SRC -> diode -> out ;  R(10k) out -> GND",
+		"need": "needs: 1 diode + 1 resistor   —   SRC → diode → OUT,  R from OUT to GND",
+		"hint": "SRC → diode → OUT ;  R(10k) OUT → GND",
 		"netlist": [
 			{"type": "V", "name": "vin", "nodes": ["in", "gnd"], "value": 0.0},
 			{"type": "D", "nodes": ["in", "out"]},
@@ -64,14 +67,15 @@ const CHALLENGES := [
 	},
 ]
 const WIN_MATCH := 0.92
-const WIN_HOLD_BLOCKS := 40
+const WIN_DROP := 0.88      # hysteresis: hold-timer only resets below this
+const WIN_HOLD_SEC := 0.7   # wall-clock time above WIN_MATCH to latch a solve
 
 var _target := PackedFloat32Array()
 var _target_kind := 0          # 0 = off, else CHALLENGES[_target_kind - 1]
 var _ref_solver: Object        # 2nd engine instance for the reference circuit
 var _match := 0.0              # smoothed level match, 0..1
 var _shape := 0.0             # smoothed match with a best-fit gain removed
-var _win_blocks := 0
+var _win_time := 0.0
 var _solved := false
 
 var _count := {"resistor": 0, "capacitor": 0, "diode": 0, "transistor": 0, "ota": 0, "source": 0, "ground": 0, "output": 0}
@@ -98,7 +102,9 @@ const PATCH_DIR := "user://patches"
 @onready var _save_btn: Button = %SaveBtn
 @onready var _load_btn: Button = %LoadBtn
 @onready var _target_option: OptionButton = %TargetOption
-@onready var _match_label: Label = %MatchLabel
+@onready var _next_btn: Button = %NextBtn
+@onready var _need_label: Label = %NeedLabel
+@onready var _match_meter: MatchMeter = %MatchMeter
 
 var _playback: AudioStreamGeneratorPlayback
 
@@ -140,6 +146,8 @@ func _ready() -> void:
 	for ch in CHALLENGES:
 		_target_option.add_item(ch["name"])
 	_target_option.item_selected.connect(_on_target_selected)
+	_next_btn.pressed.connect(_on_next_pressed)
+	_on_target_selected(0)
 
 	_audio.play()
 	_playback = _audio.get_stream_playback()
@@ -312,7 +320,7 @@ func _on_part_value_changed(part: Circuit4Part) -> void:
 	if _canvas.selected == part:
 		_sel_label.text = _part_desc(part)
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	_freq = _freq_slider.value
 	_drive = _drive_slider.value
 	_fill_audio()
@@ -320,28 +328,41 @@ func _process(_delta: float) -> void:
 	_scope.set_target(_target, _target_kind > 0)
 	_scope.queue_redraw()
 	_status_label.text = _status
+
+	# time-based win latch with hysteresis (fps-independent)
+	if _target_kind > 0 and not _solved:
+		if _match >= WIN_MATCH:
+			_win_time += delta
+			if _win_time >= WIN_HOLD_SEC:
+				_solved = true
+				_need_label.text = "SOLVED ✓   reference:  %s" % CHALLENGES[_target_kind - 1]["hint"]
+		elif _match < WIN_DROP:
+			_win_time = 0.0
+	_match_meter.set_state(_match, _shape, _win_time / WIN_HOLD_SEC, _solved, _target_kind > 0)
+
+func _on_next_pressed() -> void:
 	if _target_kind == 0:
-		_match_label.text = "pick a target -- a reference circuit is drawn as the amber ghost"
-	elif _solved:
-		_match_label.text = "SOLVED ✓  %s  |  reference: %s" % [
-			CHALLENGES[_target_kind - 1]["name"], CHALLENGES[_target_kind - 1]["hint"]]
-	else:
-		_match_label.text = "match %d%%   shape %d%%   (hold ≥%d%% to solve)" % [
-			roundi(_match * 100.0), roundi(_shape * 100.0), roundi(WIN_MATCH * 100.0)]
+		return
+	var nx := (_target_kind % CHALLENGES.size()) + 1  # 1 -> 2 -> 3 -> 1
+	_target_option.select(nx)
+	_on_target_selected(nx)
 
 func _on_target_selected(idx: int) -> void:
 	_target_kind = idx
 	_match = 0.0
 	_shape = 0.0
-	_win_blocks = 0
+	_win_time = 0.0
 	_solved = false
 	_target.fill(0.0)
+	_next_btn.visible = idx > 0
 	if idx == 0:
+		_need_label.text = ""
 		_freq_slider.editable = true
 		_drive_slider.editable = true
 		_ref_solver = null
 		return
 	var ch: Dictionary = CHALLENGES[idx - 1]
+	_need_label.text = ch["need"]
 	_ref_solver = ClassDB.instantiate(RUST_CLASS) if _using_rust else preload("res://mna_solver.gd").new()
 	_ref_solver.build(ch["netlist"], "gnd")
 	_ref_solver.set_dt(1.0 / SR)
@@ -404,15 +425,11 @@ func _fill_audio() -> void:
 
 	if challenge and frames > 0:
 		var block_match := clampf(1.0 - sqrt(err2 / maxf(ref2, 1.0e-6)), 0.0, 1.0)
-		# shape score: remove the least-squares gain that maps s onto tgt
-		var k := sot / maxf(so2, 1.0e-9)
-		var shape_err2 := ref2 - k * sot  # = Σ (k·s - tgt)^2  when k is the LS gain
+		# shape score: remove the least-squares gain that maps s onto tgt.
+		# k is floored at 0 so a wrong-polarity circuit gets no shape credit.
+		var k := maxf(sot / maxf(so2, 1.0e-9), 0.0)
+		var shape_err2 := ref2 - 2.0 * k * sot + k * k * so2  # = Σ (k·s - tgt)^2
 		var block_shape := clampf(1.0 - sqrt(maxf(shape_err2, 0.0) / maxf(ref2, 1.0e-6)), 0.0, 1.0)
 		_match += 0.15 * (block_match - _match)
 		_shape += 0.15 * (block_shape - _shape)
-		if _match >= WIN_MATCH:
-			_win_blocks += 1
-			if _win_blocks >= WIN_HOLD_BLOCKS:
-				_solved = true
-		else:
-			_win_blocks = 0
+	# win latch is time-based, handled in _process

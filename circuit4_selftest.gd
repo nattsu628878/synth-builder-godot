@@ -229,58 +229,86 @@ func _check_ota_lp() -> bool:
 	print("OTA: settled=%.4f  fast60=%.4f  slow60=%.4f" % [settled, fast, slow])
 	return is_finite(settled) and absf(settled - 0.05) < 3.0e-3 and fast > slow * 1.3
 
-## Select the RC-lowpass challenge, build the player's circuit identical to
-## its reference, and verify the two engines produce a matching waveform
-## (high score) and the win latches.
+## For every CHALLENGES entry: select it, build the player's circuit as the
+## reference topology, and verify the two engines agree (match ~1.0) and
+## the controls got pinned. Covers all 3 reference netlists.
 func _check_challenge_match() -> bool:
-	var scene: PackedScene = load("res://circuit4.tscn")
-	var root := scene.instantiate()
-	get_root().add_child(root)
-	await process_frame
-	await process_frame
-	var canvas: Circuit4Canvas = root.get_node("%Canvas")
+	# player wiring that reproduces each reference (parts to add, then wires,
+	# then values). Terminal numbers per circuit4_part.term_local_pos().
+	var builds := [
+		{  # 1: RC low-pass
+			"add": ["resistor", "capacitor"],
+			"wires": [["SRC", 0, "R0", 0], ["R0", 1, "OUT", 0], ["OUT", 0, "C0", 0],
+				["C0", 1, "GND", 0], ["SRC", 1, "GND", 0], ["OUT", 1, "GND", 0]],
+			"values": {"R0": 10000.0, "C0": 22.0e-9},
+			"settle": 4410,
+		},
+		{  # 2: diode soft-clip (anti-parallel pair)
+			"add": ["resistor", "diode", "diode"],
+			"wires": [["SRC", 0, "R0", 0], ["R0", 1, "OUT", 0], ["OUT", 0, "D0", 0],
+				["D0", 1, "GND", 0], ["GND", 0, "D1", 0], ["D1", 1, "OUT", 0],
+				["SRC", 1, "GND", 0], ["OUT", 1, "GND", 0]],
+			"values": {"R0": 4700.0},
+			"settle": 2000,
+		},
+		{  # 3: half-wave rectify
+			"add": ["diode", "resistor"],
+			"wires": [["SRC", 0, "D0", 0], ["D0", 1, "OUT", 0], ["OUT", 0, "R0", 0],
+				["R0", 1, "GND", 0], ["SRC", 1, "GND", 0], ["OUT", 1, "GND", 0]],
+			"values": {"R0": 10000.0},
+			"settle": 2000,
+		},
+	]
+	var all_ok := true
+	for ci in builds.size():
+		var b: Dictionary = builds[ci]
+		var scene: PackedScene = load("res://circuit4.tscn")
+		var root := scene.instantiate()
+		get_root().add_child(root)
+		await process_frame
+		await process_frame
+		var canvas: Circuit4Canvas = root.get_node("%Canvas")
 
-	root._on_target_selected(1)  # "RC low-pass": SRC -> R(10k) -> out ; C(22n) out->gnd
-	var pinned: bool = not root._freq_slider.editable and not root._drive_slider.editable and root._ref_solver != null
-	root._add_part("resistor")   # R0
-	root._add_part("capacitor")  # C0
-	var by := {}
-	for p in canvas.parts:
-		by[p.pname] = p
-	var wire := func(a, at, b, bt): canvas.wires.append({"a": [by[a], at], "b": [by[b], bt]})
-	wire.call("SRC", 0, "R0", 0)
-	wire.call("R0", 1, "OUT", 0)
-	wire.call("OUT", 0, "C0", 0)
-	wire.call("C0", 1, "GND", 0)
-	wire.call("SRC", 1, "GND", 0)
-	wire.call("OUT", 1, "GND", 0)
-	by["R0"].value = 10000.0
-	by["C0"].value = 22.0e-9
-	root._recompile()
+		root._on_target_selected(ci + 1)
+		var pinned: bool = not root._freq_slider.editable and not root._drive_slider.editable and root._ref_solver != null
+		for t in b["add"]:
+			root._add_part(t)
+		var by := {}
+		for p in canvas.parts:
+			by[p.pname] = p
+		for wdef in b["wires"]:
+			canvas.wires.append({"a": [by[wdef[0]], wdef[1]], "b": [by[wdef[2]], wdef[3]]})
+		for pn in b["values"]:
+			by[pn].value = b["values"][pn]
+		root._recompile()
 
-	# drive both engines with the same vin, mirror _fill_audio's comparison
-	var ps: Object = root._solver
-	var rs: Object = root._ref_solver
-	var res: Dictionary = canvas.compile_netlist()
-	var drive := 1.5
-	var phase := 0.0
-	var stepf := 220.0 / 44100.0
-	var worst := 0.0
-	var err2 := 0.0
-	var ref2 := 0.0
-	for i in 20000:
-		phase = fposmod(phase + stepf, 1.0)
-		var vin := drive * (2.0 * phase - 1.0)
-		for sn in root._source_names: ps.set_source(sn, vin)
-		ps.step()
-		rs.set_source("vin", vin)
-		rs.step()
-		var s: float = (ps.node_voltage(res["out_pos"]) - ps.node_voltage(res["out_neg"])) / drive
-		var t: float = (rs.node_voltage("out") - rs.node_voltage("gnd")) / drive
-		worst = maxf(worst, absf(s - t))
-		if i >= 4410:  # skip the RC settling transient
-			err2 += (s - t) * (s - t)
-			ref2 += t * t
-	var match_score := 1.0 - sqrt(err2 / maxf(ref2, 1e-6))
-	print("challenge: pinned=%s  worst|dV|=%.6f  match=%.4f" % [pinned, worst, match_score])
-	return pinned and match_score > 0.99
+		var ps: Object = root._solver
+		var rs: Object = root._ref_solver
+		var res: Dictionary = canvas.compile_netlist()
+		var drive: float = root._drive_slider.value
+		var phase := 0.0
+		var stepf := 220.0 / 44100.0
+		var worst := 0.0
+		var err2 := 0.0
+		var ref2 := 0.0
+		for i in 20000:
+			phase = fposmod(phase + stepf, 1.0)
+			var vin := drive * (2.0 * phase - 1.0)
+			for sn in root._source_names:
+				ps.set_source(sn, vin)
+			ps.step()
+			rs.set_source("vin", vin)
+			rs.step()
+			var s: float = (ps.node_voltage(res["out_pos"]) - ps.node_voltage(res["out_neg"])) / drive
+			var t: float = (rs.node_voltage("out") - rs.node_voltage("gnd")) / drive
+			worst = maxf(worst, absf(s - t))
+			if i >= int(b["settle"]):
+				err2 += (s - t) * (s - t)
+				ref2 += t * t
+		var match_score := 1.0 - sqrt(err2 / maxf(ref2, 1e-6))
+		var ok := pinned and worst < 1e-4 and match_score > 0.99
+		print("challenge %d (%s): pinned=%s worst|dV|=%.6f match=%.4f -> %s" % [
+			ci + 1, root.CHALLENGES[ci]["name"], pinned, worst, match_score, ok])
+		all_ok = all_ok and ok
+		root.queue_free()
+	return all_ok

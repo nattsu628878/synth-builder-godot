@@ -1,9 +1,10 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=7 format=3]
 
 [ext_resource type="Script" path="res://circuit4.gd" id="1"]
 [ext_resource type="Script" path="res://oscilloscope.gd" id="2"]
 [ext_resource type="Script" path="res://circuit4_canvas.gd" id="3"]
 [ext_resource type="Script" path="res://circuit4_part.gd" id="4"]
+[ext_resource type="Script" path="res://match_meter.gd" id="5"]
 
 [sub_resource type="AudioStreamGenerator" id="AudioStreamGenerator_1"]
 mix_rate = 44100.0
@@ -107,18 +108,29 @@ theme_override_constants/separation = 8
 
 [node name="TargetLbl" type="Label" parent="Margin/VBox/ChallengeBar"]
 layout_mode = 2
-text = "Target waveform:"
+text = "Target:"
 
 [node name="TargetOption" type="OptionButton" parent="Margin/VBox/ChallengeBar"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(160, 0)
+custom_minimum_size = Vector2(150, 0)
 layout_mode = 2
 
-[node name="MatchLabel" type="Label" parent="Margin/VBox/ChallengeBar"]
+[node name="NextBtn" type="Button" parent="Margin/VBox/ChallengeBar"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Next →"
+
+[node name="NeedLabel" type="Label" parent="Margin/VBox/ChallengeBar"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-text = "match: --"
+text = ""
+
+[node name="MatchMeter" type="Control" parent="Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(780, 26)
+layout_mode = 2
+script = ExtResource("5")
 
 [node name="Scope" type="Control" parent="Margin/VBox"]
 unique_name_in_owner = true
