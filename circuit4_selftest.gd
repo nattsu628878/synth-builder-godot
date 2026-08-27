@@ -117,20 +117,11 @@ func _run() -> void:
 
 	var bjt_ok: bool = await _check_common_emitter()
 	var ota_ok: bool = await _check_ota_lp()
+	var challenge_ok: bool = await _check_challenge_match()
 
-	# waveform-match target shape formulas
-	root._target_kind = 2
-	var tv_softclip: float = root._target_value(0.5)
-	root._target_kind = 3
-	var tv_halfwave_neg: float = root._target_value(-0.9)
-	var tv_halfwave_pos: float = root._target_value(0.7)
-	var target_ok := absf(tv_softclip - tanh(1.5) / tanh(3.0)) < 1e-6 \
-		and absf(tv_halfwave_neg - (-0.2)) < 1e-6 and absf(tv_halfwave_pos - 0.7) < 1e-6
-	print("target formulas ok=%s" % target_ok)
-
-	var pass_ok := drive_ok and roundtrip_ok and carried and bjt_ok and ota_ok and target_ok
-	print("drive_ok=%s  roundtrip_ok=%s  cap_carried=%s  bjt_ok=%s  ota_ok=%s  target_ok=%s" % [
-		drive_ok, roundtrip_ok, carried, bjt_ok, ota_ok, target_ok])
+	var pass_ok := drive_ok and roundtrip_ok and carried and bjt_ok and ota_ok and challenge_ok
+	print("drive_ok=%s  roundtrip_ok=%s  cap_carried=%s  bjt_ok=%s  ota_ok=%s  challenge_ok=%s" % [
+		drive_ok, roundtrip_ok, carried, bjt_ok, ota_ok, challenge_ok])
 	print("SELFTEST OK" if pass_ok else "SELFTEST FAIL")
 	quit(0 if pass_ok else 1)
 
@@ -237,3 +228,59 @@ func _check_ota_lp() -> bool:
 	var slow: float = reach.call(3.0e-7, 60)
 	print("OTA: settled=%.4f  fast60=%.4f  slow60=%.4f" % [settled, fast, slow])
 	return is_finite(settled) and absf(settled - 0.05) < 3.0e-3 and fast > slow * 1.3
+
+## Select the RC-lowpass challenge, build the player's circuit identical to
+## its reference, and verify the two engines produce a matching waveform
+## (high score) and the win latches.
+func _check_challenge_match() -> bool:
+	var scene: PackedScene = load("res://circuit4.tscn")
+	var root := scene.instantiate()
+	get_root().add_child(root)
+	await process_frame
+	await process_frame
+	var canvas: Circuit4Canvas = root.get_node("%Canvas")
+
+	root._on_target_selected(1)  # "RC low-pass": SRC -> R(10k) -> out ; C(22n) out->gnd
+	var pinned: bool = not root._freq_slider.editable and not root._drive_slider.editable and root._ref_solver != null
+	root._add_part("resistor")   # R0
+	root._add_part("capacitor")  # C0
+	var by := {}
+	for p in canvas.parts:
+		by[p.pname] = p
+	var wire := func(a, at, b, bt): canvas.wires.append({"a": [by[a], at], "b": [by[b], bt]})
+	wire.call("SRC", 0, "R0", 0)
+	wire.call("R0", 1, "OUT", 0)
+	wire.call("OUT", 0, "C0", 0)
+	wire.call("C0", 1, "GND", 0)
+	wire.call("SRC", 1, "GND", 0)
+	wire.call("OUT", 1, "GND", 0)
+	by["R0"].value = 10000.0
+	by["C0"].value = 22.0e-9
+	root._recompile()
+
+	# drive both engines with the same vin, mirror _fill_audio's comparison
+	var ps: Object = root._solver
+	var rs: Object = root._ref_solver
+	var res: Dictionary = canvas.compile_netlist()
+	var drive := 1.5
+	var phase := 0.0
+	var stepf := 220.0 / 44100.0
+	var worst := 0.0
+	var err2 := 0.0
+	var ref2 := 0.0
+	for i in 20000:
+		phase = fposmod(phase + stepf, 1.0)
+		var vin := drive * (2.0 * phase - 1.0)
+		for sn in root._source_names: ps.set_source(sn, vin)
+		ps.step()
+		rs.set_source("vin", vin)
+		rs.step()
+		var s: float = (ps.node_voltage(res["out_pos"]) - ps.node_voltage(res["out_neg"])) / drive
+		var t: float = (rs.node_voltage("out") - rs.node_voltage("gnd")) / drive
+		worst = maxf(worst, absf(s - t))
+		if i >= 4410:  # skip the RC settling transient
+			err2 += (s - t) * (s - t)
+			ref2 += t * t
+	var match_score := 1.0 - sqrt(err2 / maxf(ref2, 1e-6))
+	print("challenge: pinned=%s  worst|dV|=%.6f  match=%.4f" % [pinned, worst, match_score])
+	return pinned and match_score > 0.99

@@ -1,13 +1,11 @@
 extends Control
 
-## Spike #4 (see nattsu-hub/projects/synth-builder-godot.md): close the
-## loop for the first time -- arrange 2-terminal parts, wire their
-## terminals, and the wiring is compiled into a netlist, solved by
-## MnaSolverRs every audio sample, and heard + shown on the scope. Values
-## are live-editable without a rebuild (MnaSolver.set_value).
-##
-## Fixed part set (source / ground / output / 2R / 2C / diode); the player
-## only rewires and revalues. No palette, no save. Throwaway.
+## Game-slice host (see nattsu-hub/projects/synth-builder-godot.md, North
+## Star): arrange parts from the palette, wire their terminals, and the
+## wiring is compiled to a netlist, solved by MnaSolverRs every sample,
+## and heard + shown on the scope. Pick a Target and a reference circuit
+## (solved by a second engine instance in parallel) is drawn as a ghost
+## trace; match it -- hold >=92% for ~0.7s -- to SOLVE it.
 
 const SR := 44100.0
 const SCOPE_SAMPLES := 512
@@ -30,12 +28,51 @@ var _scope_in := PackedFloat32Array()
 var _scope_out := PackedFloat32Array()
 var _sidx := 0
 
-# --- waveform-match challenge (North Star: match a target with your circuit) ---
-const TARGETS := ["off", "RC-lowpass saw", "soft-clip saw", "half-wave saw"]
+# --- waveform-match challenges (North Star) ---
+# Each target is a small reference circuit, solved by a 2nd engine instance
+# in parallel with the player's, so the target is reachable by construction
+# and level-comparable. netlist parts are palette parts only. `hint` is the
+# wiring the "reveal" shows on solve.
+const CHALLENGES := [
+	{
+		"name": "RC low-pass", "freq": 220.0, "drive": 1.5, "out_pos": "out", "out_neg": "gnd",
+		"hint": "SRC -> R(10k) -> out ;  C(22nF) out -> GND",
+		"netlist": [
+			{"type": "V", "name": "vin", "nodes": ["in", "gnd"], "value": 0.0},
+			{"type": "R", "nodes": ["in", "out"], "value": 10000.0},
+			{"type": "C", "nodes": ["out", "gnd"], "value": 22.0e-9},
+		],
+	},
+	{
+		"name": "diode soft-clip", "freq": 220.0, "drive": 2.5, "out_pos": "out", "out_neg": "gnd",
+		"hint": "SRC -> R(4.7k) -> out ;  two diodes out<->GND (anti-parallel)",
+		"netlist": [
+			{"type": "V", "name": "vin", "nodes": ["in", "gnd"], "value": 0.0},
+			{"type": "R", "nodes": ["in", "out"], "value": 4700.0},
+			{"type": "D", "nodes": ["out", "gnd"]},
+			{"type": "D", "nodes": ["gnd", "out"]},
+		],
+	},
+	{
+		"name": "half-wave rectify", "freq": 220.0, "drive": 2.5, "out_pos": "out", "out_neg": "gnd",
+		"hint": "SRC -> diode -> out ;  R(10k) out -> GND",
+		"netlist": [
+			{"type": "V", "name": "vin", "nodes": ["in", "gnd"], "value": 0.0},
+			{"type": "D", "nodes": ["in", "out"]},
+			{"type": "R", "nodes": ["out", "gnd"], "value": 10000.0},
+		],
+	},
+]
+const WIN_MATCH := 0.92
+const WIN_HOLD_BLOCKS := 40
+
 var _target := PackedFloat32Array()
-var _target_kind := 0
-var _tgt_lp := 0.0        # 1-pole state for the RC-lowpass target
-var _match := 0.0         # smoothed match score, 0..1
+var _target_kind := 0          # 0 = off, else CHALLENGES[_target_kind - 1]
+var _ref_solver: Object        # 2nd engine instance for the reference circuit
+var _match := 0.0              # smoothed level match, 0..1
+var _shape := 0.0             # smoothed match with a best-fit gain removed
+var _win_blocks := 0
+var _solved := false
 
 var _count := {"resistor": 0, "capacitor": 0, "diode": 0, "transistor": 0, "ota": 0, "source": 0, "ground": 0, "output": 0}
 var _spawn_i := 0
@@ -99,9 +136,10 @@ func _ready() -> void:
 	_refresh_patch_list()
 
 	_target_option.clear()
-	for t in TARGETS:
-		_target_option.add_item(t)
-	_target_option.item_selected.connect(func(idx): _target_kind = idx)
+	_target_option.add_item("off")
+	for ch in CHALLENGES:
+		_target_option.add_item(ch["name"])
+	_target_option.item_selected.connect(_on_target_selected)
 
 	_audio.play()
 	_playback = _audio.get_stream_playback()
@@ -282,10 +320,36 @@ func _process(_delta: float) -> void:
 	_scope.set_target(_target, _target_kind > 0)
 	_scope.queue_redraw()
 	_status_label.text = _status
-	if _target_kind > 0:
-		_match_label.text = "match: %d%%   (%s)" % [roundi(_match * 100.0), TARGETS[_target_kind]]
+	if _target_kind == 0:
+		_match_label.text = "pick a target -- a reference circuit is drawn as the amber ghost"
+	elif _solved:
+		_match_label.text = "SOLVED ✓  %s  |  reference: %s" % [
+			CHALLENGES[_target_kind - 1]["name"], CHALLENGES[_target_kind - 1]["hint"]]
 	else:
-		_match_label.text = "pick a target to score your circuit against it"
+		_match_label.text = "match %d%%   shape %d%%   (hold ≥%d%% to solve)" % [
+			roundi(_match * 100.0), roundi(_shape * 100.0), roundi(WIN_MATCH * 100.0)]
+
+func _on_target_selected(idx: int) -> void:
+	_target_kind = idx
+	_match = 0.0
+	_shape = 0.0
+	_win_blocks = 0
+	_solved = false
+	_target.fill(0.0)
+	if idx == 0:
+		_freq_slider.editable = true
+		_drive_slider.editable = true
+		_ref_solver = null
+		return
+	var ch: Dictionary = CHALLENGES[idx - 1]
+	_ref_solver = ClassDB.instantiate(RUST_CLASS) if _using_rust else preload("res://mna_solver.gd").new()
+	_ref_solver.build(ch["netlist"], "gnd")
+	_ref_solver.set_dt(1.0 / SR)
+	# both circuits must see identical vin, so pin the drive controls
+	_freq_slider.value = ch["freq"]
+	_drive_slider.value = ch["drive"]
+	_freq_slider.editable = false
+	_drive_slider.editable = false
 
 func _fill_audio() -> void:
 	if _playback == null:
@@ -293,47 +357,62 @@ func _fill_audio() -> void:
 	var frames := _playback.get_frames_available()
 	var inv_drive := 1.0 / maxf(_drive, 0.01)
 	var step := _freq / SR
-	var err2 := 0.0
-	var ref2 := 0.0
+	var challenge: bool = _target_kind > 0 and _ref_solver != null
+	var ref_src := ""
+	var ref_pos := ""
+	var ref_neg := ""
+	if challenge:
+		var ch: Dictionary = CHALLENGES[_target_kind - 1]
+		ref_src = "vin"
+		ref_pos = ch["out_pos"]
+		ref_neg = ch["out_neg"]
+	var err2 := 0.0    # Σ (s - tgt)^2
+	var ref2 := 0.0   # Σ tgt^2
+	var so2 := 0.0     # Σ s^2         (for the best-fit gain)
+	var sot := 0.0     # Σ s·tgt
 	for _i in frames:
 		_phase += step
 		if _phase >= 1.0:
 			_phase -= 1.0
 		var saw := 2.0 * _phase - 1.0
+		var vin := _drive * saw
 		var out_v := 0.0
 		if _ok:
-			var vin := _drive * saw
 			for sn in _source_names:
 				_solver.set_source(sn, vin)
 			_solver.step()
 			out_v = _solver.node_voltage(_out_pos) - _solver.node_voltage(_out_neg)
-		var s := clampf(out_v * inv_drive, -1.0, 1.0)
-		var tgt := _target_value(saw)
-		_playback.push_frame(Vector2(s, s) if _ok else Vector2.ZERO)
+		var s := clampf(out_v * inv_drive, -1.0, 1.0) if _ok else 0.0
+
+		var tgt := 0.0
+		if challenge:
+			_ref_solver.set_source(ref_src, vin)
+			_ref_solver.step()
+			tgt = clampf((_ref_solver.node_voltage(ref_pos) - _ref_solver.node_voltage(ref_neg)) * inv_drive, -1.0, 1.0)
+
+		_playback.push_frame(Vector2(s, s))
 		_scope_in[_sidx] = clampf(saw, -1.0, 1.0)
-		_scope_out[_sidx] = s if _ok else 0.0
+		_scope_out[_sidx] = s
 		_target[_sidx] = tgt
 		_sidx = (_sidx + 1) % SCOPE_SAMPLES
-		if _target_kind > 0:
-			var e := (s if _ok else 0.0) - tgt
+		if challenge:
+			var e := s - tgt
 			err2 += e * e
 			ref2 += tgt * tgt
-	if _target_kind > 0 and frames > 0:
-		# 1 - normalised RMS error, smoothed so the meter is readable
-		var block := clampf(1.0 - sqrt(err2 / maxf(ref2, 1.0e-6)), 0.0, 1.0)
-		_match += 0.15 * (block - _match)
+			so2 += s * s
+			sot += s * tgt
 
-## The waveform the player is trying to match, sample-aligned with the
-## live oscillator (so target[i] pairs with scope_out[i]).
-func _target_value(saw: float) -> float:
-	match _target_kind:
-		1:  # saw through a fixed ~600 Hz 1-pole low-pass
-			var a := 1.0 - exp(-TAU * 600.0 / SR)
-			_tgt_lp += a * (saw - _tgt_lp)
-			return _tgt_lp
-		2:  # soft-clipped saw (normalised)
-			return tanh(3.0 * saw) / tanh(3.0)
-		3:  # half-wave-ish: clamp the negative excursion
-			return maxf(saw, -0.2)
-		_:
-			return 0.0
+	if challenge and frames > 0:
+		var block_match := clampf(1.0 - sqrt(err2 / maxf(ref2, 1.0e-6)), 0.0, 1.0)
+		# shape score: remove the least-squares gain that maps s onto tgt
+		var k := sot / maxf(so2, 1.0e-9)
+		var shape_err2 := ref2 - k * sot  # = Σ (k·s - tgt)^2  when k is the LS gain
+		var block_shape := clampf(1.0 - sqrt(maxf(shape_err2, 0.0) / maxf(ref2, 1.0e-6)), 0.0, 1.0)
+		_match += 0.15 * (block_match - _match)
+		_shape += 0.15 * (block_shape - _shape)
+		if _match >= WIN_MATCH:
+			_win_blocks += 1
+			if _win_blocks >= WIN_HOLD_BLOCKS:
+				_solved = true
+		else:
+			_win_blocks = 0
