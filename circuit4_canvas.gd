@@ -10,6 +10,7 @@ signal selection_changed(part: Circuit4Part)
 signal part_value_changed(part: Circuit4Part)
 
 const WIRE_HIT := 8.0
+const TKEY := 3   # terminal-key stride (max terminals on any part)
 
 var parts: Array[Circuit4Part] = []
 var wires: Array = []          # [{a=[part,term], b=[part,term]}]
@@ -143,17 +144,17 @@ func compile_netlist() -> Dictionary:
 	var uf := {}
 	for pi in parts.size():
 		for t in parts[pi].term_count():
-			var k := pi * 2 + t
+			var k := pi * TKEY + t
 			uf[k] = k
 	for w in wires:
-		var ka: int = parts.find(w["a"][0]) * 2 + w["a"][1]
-		var kb: int = parts.find(w["b"][0]) * 2 + w["b"][1]
+		var ka: int = parts.find(w["a"][0]) * TKEY + w["a"][1]
+		var kb: int = parts.find(w["b"][0]) * TKEY + w["b"][1]
 		uf[_uf_find(uf, ka)] = _uf_find(uf, kb)
 
 	var ground_roots := {}
 	for pi in parts.size():
 		if parts[pi].part_type == "ground":
-			ground_roots[_uf_find(uf, pi * 2)] = true
+			ground_roots[_uf_find(uf, pi * TKEY)] = true
 
 	var netlist := []
 	var out_pos := ""
@@ -161,21 +162,24 @@ func compile_netlist() -> Dictionary:
 	var has_source := false
 	for pi in parts.size():
 		var p := parts[pi]
-		var na := _node_name(uf, pi * 2, ground_roots)
-		var nb := _node_name(uf, pi * 2 + 1, ground_roots) if p.term_count() == 2 else "gnd"
+		var nn := PackedStringArray()
+		for t in 3:
+			nn.append(_node_name(uf, pi * TKEY + t, ground_roots) if t < p.term_count() else "gnd")
 		match p.part_type:
 			"resistor":
-				netlist.append({"type": "R", "name": p.pname, "nodes": [na, nb], "value": p.value})
+				netlist.append({"type": "R", "name": p.pname, "nodes": [nn[0], nn[1]], "value": p.value})
 			"capacitor":
-				netlist.append({"type": "C", "name": p.pname, "nodes": [na, nb], "value": p.value})
+				netlist.append({"type": "C", "name": p.pname, "nodes": [nn[0], nn[1]], "value": p.value})
 			"diode":
-				netlist.append({"type": "D", "nodes": [na, nb]})
+				netlist.append({"type": "D", "nodes": [nn[0], nn[1]]})
+			"transistor":
+				netlist.append({"type": "Q", "nodes": [nn[0], nn[1], nn[2]]})  # collector, base, emitter
 			"source":
-				netlist.append({"type": "V", "name": p.pname, "nodes": [na, nb], "value": 0.0})
+				netlist.append({"type": "V", "name": p.pname, "nodes": [nn[0], nn[1]], "value": 0.0})
 				has_source = true
 			"output":
-				out_pos = na
-				out_neg = nb
+				out_pos = nn[0]
+				out_neg = nn[1]
 			"ground":
 				pass
 

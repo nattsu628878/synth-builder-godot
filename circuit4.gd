@@ -30,12 +30,12 @@ var _scope_in := PackedFloat32Array()
 var _scope_out := PackedFloat32Array()
 var _sidx := 0
 
-var _count := {"resistor": 0, "capacitor": 0, "diode": 0, "source": 0, "ground": 0, "output": 0}
+var _count := {"resistor": 0, "capacitor": 0, "diode": 0, "transistor": 0, "source": 0, "ground": 0, "output": 0}
 var _spawn_i := 0
 
 const DEFAULTS := {"resistor": 4700.0, "capacitor": 1.0e-8}
 const ABBR := {
-	"resistor": "R", "capacitor": "C", "diode": "D",
+	"resistor": "R", "capacitor": "C", "diode": "D", "transistor": "Q",
 	"source": "SRC", "ground": "GND", "output": "OUT",
 }
 
@@ -244,6 +244,7 @@ func _part_desc(part: Circuit4Part) -> String:
 	match part.part_type:
 		"resistor": return "%s  %s" % [part.pname, part.value_text()]
 		"capacitor": return "%s  %s" % [part.pname, part.value_text()]
+		"transistor": return "%s  NPN (terminals: C top, B left, E bottom)" % part.pname
 		_: return "%s  (no value -- Drive/Freq below)" % part.pname
 
 func _on_selection_changed(part: Circuit4Part) -> void:

@@ -115,7 +115,64 @@ func _run() -> void:
 	var carried := before.has("C0") and after.has("C0") \
 		and absf(before["C0"]) > 0.05 and absf(after["C0"] - before["C0"]) < 1e-6
 
-	var pass_ok := drive_ok and roundtrip_ok and carried
-	print("drive_ok=%s  roundtrip_ok=%s  cap_carried=%s" % [drive_ok, roundtrip_ok, carried])
+	var bjt_ok: bool = await _check_common_emitter()
+
+	var pass_ok := drive_ok and roundtrip_ok and carried and bjt_ok
+	print("drive_ok=%s  roundtrip_ok=%s  cap_carried=%s  bjt_ok=%s" % [drive_ok, roundtrip_ok, carried, bjt_ok])
 	print("SELFTEST OK" if pass_ok else "SELFTEST FAIL")
 	quit(0 if pass_ok else 1)
+
+## Build a common-emitter stage through the spike-4 wiring path (3-terminal
+## part, TKEY=3 keying, "Q" netlist entry) and check it turns on and inverts.
+func _check_common_emitter() -> bool:
+	var scene: PackedScene = load("res://circuit4.tscn")
+	var root := scene.instantiate()
+	get_root().add_child(root)
+	await process_frame
+	await process_frame
+	var canvas: Circuit4Canvas = root.get_node("%Canvas")
+
+	root._add_part("source")      # SRC0 -> Vcc rail
+	root._add_part("resistor")    # R0 -> collector load
+	root._add_part("resistor")    # R1 -> base bias from Vcc
+	root._add_part("resistor")    # R2 -> base from input
+	root._add_part("transistor")  # Q0
+	var by := {}
+	for p in canvas.parts:
+		by[p.pname] = p
+	var wire := func(a, at, b, bt): canvas.wires.append({"a": [by[a], at], "b": [by[b], bt]})
+	wire.call("SRC0", 0, "R0", 0)   # Vcc -> Rc
+	wire.call("SRC0", 0, "R1", 0)   # Vcc -> Rb_bias
+	wire.call("SRC0", 1, "GND", 0)  # Vcc-
+	wire.call("R0", 1, "Q0", 0)     # Rc -> collector
+	wire.call("R1", 1, "Q0", 1)     # Rb_bias -> base
+	wire.call("R2", 1, "Q0", 1)     # Rin -> base
+	wire.call("R2", 0, "SRC", 0)    # Rin <- input source
+	wire.call("SRC", 1, "GND", 0)
+	wire.call("Q0", 2, "GND", 0)    # emitter -> gnd
+	wire.call("OUT", 0, "Q0", 0)    # probe collector
+	wire.call("OUT", 1, "GND", 0)
+	by["R0"].value = 2000.0
+	by["R1"].value = 470000.0
+	by["R2"].value = 100000.0
+
+	var res: Dictionary = canvas.compile_netlist()
+	var has_q := false
+	for c in res.get("netlist", []):
+		if c["type"] == "Q":
+			has_q = true
+	print("CE: compile ok=%s has_Q=%s nodes=%s" % [res.get("ok"), has_q, res.get("num_nodes")])
+	if not res["ok"] or not has_q:
+		return false
+	root._recompile()
+	var s: Object = root._solver
+	var settle := func(vin_amp: float) -> float:
+		for _i in 6000:
+			s.set_source("SRC0", 9.0)
+			s.set_source("SRC", vin_amp)
+			s.step()
+		return s.node_voltage(res["out_pos"]) - s.node_voltage(res["out_neg"])
+	var vc0: float = settle.call(0.0)
+	var vc1: float = settle.call(0.1)
+	print("CE: Vc(vin=0)=%.3f  Vc(vin=0.1)=%.3f  gain=%.1f" % [vc0, vc1, (vc1 - vc0) / 0.1])
+	return is_finite(vc0) and vc0 > 0.1 and vc0 < 8.5 and (vc1 - vc0) / 0.1 < -1.0

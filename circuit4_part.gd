@@ -50,12 +50,23 @@ func _set_norm(t: float) -> void:
 	value = exp(lerpf(log(float(r[0])), log(float(r[1])), clampf(t, 0.0, 1.0)))
 
 func term_count() -> int:
-	return 1 if part_type == "ground" else 2
+	match part_type:
+		"ground": return 1
+		"transistor": return 3
+		_: return 2
 
 func term_local_pos(i: int) -> Vector2:
-	if part_type == "ground":
-		return Vector2(size.x * 0.5, size.y)
-	return Vector2(0.0, size.y * 0.5) if i == 0 else Vector2(size.x, size.y * 0.5)
+	match part_type:
+		"ground":
+			return Vector2(size.x * 0.5, size.y)
+		"transistor":
+			# 0 = collector (top-right), 1 = base (left), 2 = emitter (bottom-right)
+			match i:
+				0: return Vector2(size.x, size.y * 0.22)
+				1: return Vector2(0.0, size.y * 0.5)
+				_: return Vector2(size.x, size.y * 0.78)
+		_:
+			return Vector2(0.0, size.y * 0.5) if i == 0 else Vector2(size.x, size.y * 0.5)
 
 func term_global_pos(i: int) -> Vector2:
 	return global_position + term_local_pos(i)
@@ -133,7 +144,7 @@ func _draw() -> void:
 		draw_rect(Rect2(Vector2.ZERO, size), Color(1.0, 0.85, 0.3), false, 2.0)
 
 	# leads from each terminal toward the glyph
-	if part_type != "ground":
+	if part_type != "ground" and part_type != "transistor":
 		draw_line(Vector2(0, mid), Vector2(size.x * 0.32, mid), fg, 2.0)
 		draw_line(Vector2(size.x * 0.68, mid), Vector2(size.x, mid), fg, 2.0)
 
@@ -141,6 +152,7 @@ func _draw() -> void:
 		"resistor": _draw_resistor(mid, fg)
 		"capacitor": _draw_capacitor(mid, fg)
 		"diode": _draw_diode(mid, fg)
+		"transistor": _draw_transistor(fg)
 		"source": _draw_source(mid, accent)
 		"ground": _draw_ground(fg)
 		"output": _draw_output(mid, accent)
@@ -191,6 +203,23 @@ func _draw_diode(mid: float, col: Color) -> void:
 		Vector2(x0, mid - 10), Vector2(x0, mid + 10), Vector2(x1, mid)])
 	draw_colored_polygon(tri, col)
 	draw_line(Vector2(x1, mid - 10), Vector2(x1, mid + 10), col, 2.5)
+
+func _draw_transistor(col: Color) -> void:
+	var bx := size.x * 0.42
+	var bt := size.y * 0.30
+	var bb := size.y * 0.70
+	draw_line(Vector2(bx, bt), Vector2(bx, bb), col, 3.0)              # base bar
+	draw_line(term_local_pos(1), Vector2(bx, size.y * 0.5), col, 2.0)  # base lead
+	var cj := Vector2(bx, size.y * 0.40)
+	var ej := Vector2(bx, size.y * 0.60)
+	draw_line(cj, term_local_pos(0), col, 2.0)                        # collector
+	draw_line(ej, term_local_pos(2), col, 2.0)                        # emitter
+	# NPN: arrowhead on the emitter lead pointing away from the base
+	var dir := (term_local_pos(2) - ej).normalized()
+	var tip := ej + dir * 12.0
+	var n := Vector2(-dir.y, dir.x)
+	draw_colored_polygon(PackedVector2Array([
+		tip, tip - dir * 6.0 + n * 4.0, tip - dir * 6.0 - n * 4.0]), col)
 
 func _draw_source(mid: float, col: Color) -> void:
 	var cx := size.x * 0.5

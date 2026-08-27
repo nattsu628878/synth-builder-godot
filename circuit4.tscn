@@ -56,6 +56,10 @@ text = "+ Capacitor"
 layout_mode = 2
 text = "+ Diode"
 
+[node name="Transistor" type="Button" parent="Margin/VBox/Palette"]
+layout_mode = 2
+text = "+ Transistor"
+
 [node name="Source" type="Button" parent="Margin/VBox/Palette"]
 layout_mode = 2
 text = "+ Source"
