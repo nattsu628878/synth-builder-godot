@@ -46,7 +46,6 @@ const PATCH_DIR := "user://patches"
 @onready var _scope: Control = %Scope
 @onready var _status_label: Label = %StatusLabel
 @onready var _sel_label: Label = %SelLabel
-@onready var _value_slider: HSlider = %ValueSlider
 @onready var _freq_slider: HSlider = %FreqSlider
 @onready var _drive_slider: HSlider = %DriveSlider
 @onready var _audio: AudioStreamPlayer = %AudioPlayer
@@ -81,9 +80,8 @@ func _ready() -> void:
 
 	_canvas.topology_changed.connect(_recompile)
 	_canvas.selection_changed.connect(_on_selection_changed)
-	_value_slider.value_changed.connect(_on_value_slider)
-	_value_slider.visible = false
-	_sel_label.text = "select a part to edit its value  (Delete removes it)"
+	_canvas.part_value_changed.connect(_on_part_value_changed)
+	_sel_label.text = "drag a part's knob to set its value  (click a part, Delete removes it)"
 
 	_save_btn.pressed.connect(_save_patch)
 	_load_btn.pressed.connect(_load_patch)
@@ -242,46 +240,22 @@ func _recompile() -> void:
 	_status = "compiled: %d nodes, %d components  [%s]" % [
 		res["num_nodes"], res["netlist"].size(), "Rust" if _using_rust else "GDScript"]
 
+func _part_desc(part: Circuit4Part) -> String:
+	match part.part_type:
+		"resistor": return "%s  %s" % [part.pname, part.value_text()]
+		"capacitor": return "%s  %s" % [part.pname, part.value_text()]
+		_: return "%s  (no value -- Drive/Freq below)" % part.pname
+
 func _on_selection_changed(part: Circuit4Part) -> void:
 	if part == null:
-		_value_slider.visible = false
-		_sel_label.text = "select a part to edit its value  (Delete removes it)"
+		_sel_label.text = "drag a part's knob to set its value  (click a part, Delete removes it)"
 		return
-	match part.part_type:
-		"resistor":
-			_value_slider.visible = true
-			_value_slider.min_value = 100.0
-			_value_slider.max_value = 100000.0
-			_value_slider.exp_edit = true
-			_value_slider.step = 1.0
-			_value_slider.set_value_no_signal(part.value)
-			_sel_label.text = "%s  resistance: %.0f ohm" % [part.pname, part.value]
-		"capacitor":
-			_value_slider.visible = true
-			_value_slider.min_value = 1.0        # nF
-			_value_slider.max_value = 1000.0
-			_value_slider.exp_edit = true
-			_value_slider.step = 0.1
-			_value_slider.set_value_no_signal(part.value * 1.0e9)
-			_sel_label.text = "%s  capacitance: %.1f nF" % [part.pname, part.value * 1.0e9]
-		_:
-			_value_slider.visible = false
-			_sel_label.text = "%s  (no editable value -- use Drive/Freq below)" % part.pname
+	_sel_label.text = _part_desc(part)
 
-func _on_value_slider(v: float) -> void:
-	var part := _canvas.selected
-	if part == null:
-		return
-	if part.part_type == "resistor":
-		part.value = v
-		_solver.set_value(part.pname, v)
-		_sel_label.text = "%s  resistance: %.0f ohm" % [part.pname, v]
-		part.queue_redraw()
-	elif part.part_type == "capacitor":
-		part.value = v * 1.0e-9
-		_solver.set_value(part.pname, part.value)
-		_sel_label.text = "%s  capacitance: %.1f nF" % [part.pname, v]
-		part.queue_redraw()
+func _on_part_value_changed(part: Circuit4Part) -> void:
+	_solver.set_value(part.pname, part.value)
+	if _canvas.selected == part:
+		_sel_label.text = _part_desc(part)
 
 func _process(_delta: float) -> void:
 	_freq = _freq_slider.value

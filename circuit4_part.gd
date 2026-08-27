@@ -8,10 +8,20 @@ extends PanelContainer
 
 signal terminal_pressed(part: Circuit4Part, term: int)
 signal body_selected(part: Circuit4Part)
+signal value_changed(part: Circuit4Part)
 signal moved
 
 const TERM_RADIUS := 7.0
 const TERM_HIT := 13.0
+const KNOB_R := 10.0
+const KNOB_SWEEP := 2.35   # radians each side of straight-down
+const KNOB_SENS := 0.006   # value-normalised units per pixel of vertical drag
+
+# parts with an editable value get an on-board knob; [min, max] on a log scale
+const VRANGE := {
+	"resistor": [100.0, 100000.0],
+	"capacitor": [1.0e-9, 1.0e-6],
+}
 
 @export var part_type := ""   # source | resistor | capacitor | diode | ground | output
 @export var value := 0.0
@@ -20,7 +30,24 @@ var pname := ""
 var selected := false
 
 var _dragging := false
+var _knob_drag := false
 var _hover_term := -1
+
+func has_knob() -> bool:
+	return VRANGE.has(part_type)
+
+func _knob_center() -> Vector2:
+	return Vector2(size.x - 15.0, size.y - 13.0)
+
+func _value_norm() -> float:
+	var r: Array = VRANGE[part_type]
+	var lo := log(float(r[0]))
+	var hi := log(float(r[1]))
+	return clampf((log(value) - lo) / (hi - lo), 0.0, 1.0)
+
+func _set_norm(t: float) -> void:
+	var r: Array = VRANGE[part_type]
+	value = exp(lerpf(log(float(r[0])), log(float(r[1])), clampf(t, 0.0, 1.0)))
 
 func term_count() -> int:
 	return 1 if part_type == "ground" else 2
@@ -53,13 +80,24 @@ func _gui_input(event: InputEvent) -> void:
 				terminal_pressed.emit(self, t)
 				accept_event()
 				return
+			if has_knob() and event.position.distance_to(_knob_center()) <= KNOB_R + 4.0:
+				_knob_drag = true
+				body_selected.emit(self)
+				accept_event()
+				return
 			_dragging = true
 			body_selected.emit(self)
 			accept_event()
 		else:
 			_dragging = false
+			_knob_drag = false
 	elif event is InputEventMouseMotion:
-		if _dragging:
+		if _knob_drag:
+			_set_norm(_value_norm() - event.relative.y * KNOB_SENS)  # drag up = more
+			value_changed.emit(self)
+			queue_redraw()
+			accept_event()
+		elif _dragging:
 			position += event.relative
 			moved.emit()
 			accept_event()
@@ -113,6 +151,12 @@ func _draw() -> void:
 	var vt := value_text()
 	if vt != "":
 		draw_string(font, Vector2(4, size.y - 4), vt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(0.75, 0.8, 0.55))
+
+	if has_knob():
+		var kc := _knob_center()
+		draw_arc(kc, KNOB_R, 0.0, TAU, 18, Color(0.55, 0.6, 0.68), 2.0)
+		var a: float = -PI / 2.0 + lerpf(-KNOB_SWEEP, KNOB_SWEEP, _value_norm())
+		draw_line(kc, kc + Vector2(cos(a), sin(a)) * (KNOB_R - 2.0), Color(1.0, 0.85, 0.4), 2.5)
 
 	# terminals
 	for i in term_count():

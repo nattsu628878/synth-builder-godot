@@ -7,6 +7,7 @@ extends Control
 
 signal topology_changed
 signal selection_changed(part: Circuit4Part)
+signal part_value_changed(part: Circuit4Part)
 
 const WIRE_HIT := 8.0
 
@@ -23,6 +24,7 @@ func register_part(p: Circuit4Part) -> void:
 	parts.append(p)
 	p.terminal_pressed.connect(_on_terminal_pressed)
 	p.body_selected.connect(_on_body_selected)
+	p.value_changed.connect(func(pt): part_value_changed.emit(pt))
 	p.moved.connect(queue_redraw)
 
 func clear_all() -> void:
