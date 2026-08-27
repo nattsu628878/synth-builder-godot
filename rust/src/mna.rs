@@ -45,7 +45,9 @@ pub struct Mna {
 
     // typed component tables (indices: -1 == ground)
     r: Vec<(i32, i32, f64)>,        // p, q, 1/R
+    r_name: Vec<String>,            // parallel to `r`, "" if unnamed
     c: Vec<(i32, i32, f64, f64)>,   // p, q, Geq (=C/dt), farad
+    c_name: Vec<String>,            // parallel to `c`
     d: Vec<(i32, i32)>,             // anode, cathode
     v: Vec<(i32, i32, usize)>,      // p, q, branch index
     v_val: Vec<f64>,                // source values, parallel to `v`
@@ -65,7 +67,9 @@ impl Mna {
         self.ground = ground.to_string();
         self.node_idx.clear();
         self.r.clear();
+        self.r_name.clear();
         self.c.clear();
+        self.c_name.clear();
         self.d.clear();
         self.v.clear();
         self.v_val.clear();
@@ -94,8 +98,14 @@ impl Mna {
                 .map(|nm| idx_of(nm, &self.node_idx, &self.ground))
                 .collect();
             match e.typ.as_str() {
-                "R" => self.r.push((ix[0], ix[1], 1.0 / e.value.unwrap_or(1.0))),
-                "C" => self.c.push((ix[0], ix[1], 0.0, e.value.unwrap_or(0.0))),
+                "R" => {
+                    self.r.push((ix[0], ix[1], 1.0 / e.value.unwrap_or(1.0)));
+                    self.r_name.push(e.name.clone().unwrap_or_default());
+                }
+                "C" => {
+                    self.c.push((ix[0], ix[1], 0.0, e.value.unwrap_or(0.0)));
+                    self.c_name.push(e.name.clone().unwrap_or_default());
+                }
                 "D" => self.d.push((ix[0], ix[1])),
                 "V" => {
                     self.v.push((ix[0], ix[1], branch));
@@ -141,12 +151,23 @@ impl Mna {
         }
     }
 
+    /// Change an R (ohms) or C (farads) value in place, keeping solver
+    /// state intact -- for live slider tweaks without a rebuild.
+    pub fn set_value(&mut self, name: &str, value: f64) {
+        if let Some(i) = self.r_name.iter().position(|n| n == name) {
+            self.r[i].2 = 1.0 / value;
+            self.refresh_dt();
+        } else if let Some(i) = self.c_name.iter().position(|n| n == name) {
+            self.c[i].3 = value;
+            self.refresh_dt();
+        }
+    }
+
     pub fn node_voltage(&self, name: &str) -> f64 {
         if name == self.ground {
-            0.0
-        } else {
-            self.x[self.node_idx[name]]
+            return 0.0;
         }
+        self.node_idx.get(name).map_or(0.0, |&i| self.x[i])
     }
 
     /// Rebuild the constant part of the matrix (call after dt / topology change).
@@ -158,6 +179,11 @@ impl Mna {
             *slot = 0.0;
         }
         let w = self.w;
+        // GMIN: tiny shunt from every node to ground so any wiring the
+        // player makes (floating nodes included) stays solvable.
+        for i in 0..self.num_nodes {
+            self.base[i * w + i] += 1.0e-9;
+        }
         for &(p, q, g) in &self.r {
             add_g(&mut self.base, w, p, q, g);
         }

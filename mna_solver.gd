@@ -57,10 +57,12 @@ var _x_prev := PackedFloat64Array()
 var _r_p := PackedInt32Array()
 var _r_q := PackedInt32Array()
 var _r_g := PackedFloat64Array()      # 1/R
+var _r_name := PackedStringArray()    # optional, for set_value()
 var _c_p := PackedInt32Array()
 var _c_q := PackedInt32Array()
 var _c_geq := PackedFloat64Array()    # C/dt, filled once dt is known
 var _c_farad := PackedFloat64Array()
+var _c_name := PackedStringArray()    # optional, for set_value()
 var _d_p := PackedInt32Array()
 var _d_q := PackedInt32Array()
 var _v_p := PackedInt32Array()
@@ -76,7 +78,7 @@ func build(netlist: Array, ground_name: String = "gnd") -> void:
 	_ground = ground_name
 	_node_idx.clear()
 	_src_name_to_i.clear()
-	for arr in [_r_p, _r_q, _r_g, _c_p, _c_q, _c_geq, _c_farad, _d_p, _d_q,
+	for arr in [_r_p, _r_q, _r_g, _r_name, _c_p, _c_q, _c_geq, _c_farad, _c_name, _d_p, _d_q,
 			_v_p, _v_q, _v_k, _v_val, _o_out, _o_vp, _o_vm, _o_k]:
 		arr.clear()
 
@@ -94,9 +96,11 @@ func build(netlist: Array, ground_name: String = "gnd") -> void:
 		match c["type"]:
 			"R":
 				_r_p.append(ix[0]); _r_q.append(ix[1]); _r_g.append(1.0 / float(c["value"]))
+				_r_name.append(String(c.get("name", "")))
 			"C":
 				_c_p.append(ix[0]); _c_q.append(ix[1])
 				_c_farad.append(float(c["value"])); _c_geq.append(0.0)
+				_c_name.append(String(c.get("name", "")))
 			"D":
 				_d_p.append(ix[0]); _d_q.append(ix[1])
 			"V":
@@ -132,8 +136,21 @@ func set_source(name: String, value: float) -> void:
 	if _src_name_to_i.has(name):
 		_v_val[int(_src_name_to_i[name])] = value
 
+## Change an R (ohms) or C (farads) value in place, keeping solver state
+## (capacitor memory) intact -- for live slider tweaks without a rebuild.
+func set_value(name: String, value: float) -> void:
+	var i := _r_name.find(name)
+	if i != -1:
+		_r_g[i] = 1.0 / value
+		_refresh_dt()
+		return
+	i = _c_name.find(name)
+	if i != -1:
+		_c_farad[i] = value
+		_refresh_dt()
+
 func node_voltage(name: String) -> float:
-	if name == _ground:
+	if name == _ground or not _node_idx.has(name):
 		return 0.0
 	return _x[int(_node_idx[name])]
 
@@ -146,6 +163,10 @@ func _refresh_dt() -> void:
 		_c_geq[i] = _c_farad[i] / dt
 	_base.fill(0.0)
 	var w := _w
+	# GMIN: a tiny shunt conductance from every node to ground, so any
+	# topology the player wires (floating nodes included) stays solvable.
+	for i in num_nodes:
+		_base[i * w + i] += 1.0e-9
 	# resistors
 	for i in _r_p.size():
 		_add_g(_base, _r_p[i], _r_q[i], _r_g[i])

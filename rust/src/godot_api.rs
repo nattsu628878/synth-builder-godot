@@ -60,6 +60,13 @@ impl MnaSolverRs {
     }
 
     #[func]
+    fn set_value(&mut self, name: GString, value: f64) {
+        if let Some(m) = &mut self.inner {
+            m.set_value(&name.to_string(), value);
+        }
+    }
+
+    #[func]
     fn node_voltage(&self, name: GString) -> f64 {
         self.inner
             .as_ref()

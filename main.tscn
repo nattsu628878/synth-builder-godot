@@ -1,12 +1,11 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=6 format=3 uid="uid://bxc5bq5n4nvjq"]
 
-[ext_resource type="Script" path="res://main.gd" id="1"]
-[ext_resource type="Script" path="res://oscilloscope.gd" id="2"]
-[ext_resource type="Script" path="res://circuit_canvas.gd" id="3"]
-[ext_resource type="Script" path="res://circuit_block.gd" id="4"]
+[ext_resource type="Script" uid="uid://cdpj0i8n5t4mj" path="res://main.gd" id="1"]
+[ext_resource type="Script" uid="uid://0tj2sr25lc62" path="res://oscilloscope.gd" id="2"]
+[ext_resource type="Script" uid="uid://b1conqye0efob" path="res://circuit_canvas.gd" id="3"]
+[ext_resource type="Script" uid="uid://bimnirb0pfq5q" path="res://circuit_block.gd" id="4"]
 
 [sub_resource type="AudioStreamGenerator" id="AudioStreamGenerator_1"]
-mix_rate = 44100.0
 buffer_length = 0.1
 
 [node name="Main" type="Control"]
@@ -52,9 +51,9 @@ text = "Wired to output: no -- connect source -> ... -> output"
 
 [node name="Canvas" type="Control" parent="Margin/VBox"]
 unique_name_in_owner = true
+clip_contents = true
 custom_minimum_size = Vector2(780, 200)
 layout_mode = 2
-clip_contents = true
 script = ExtResource("3")
 
 [node name="SourceBlock" type="PanelContainer" parent="Margin/VBox/Canvas"]
@@ -130,7 +129,6 @@ custom_minimum_size = Vector2(400, 24)
 layout_mode = 2
 min_value = 50.0
 max_value = 2000.0
-step = 1.0
 value = 220.0
 
 [node name="RLabel" type="Label" parent="Margin/VBox"]
@@ -156,7 +154,6 @@ custom_minimum_size = Vector2(400, 24)
 layout_mode = 2
 min_value = 1.0
 max_value = 1000.0
-step = 1.0
 value = 100.0
 
 [node name="AudioPlayer" type="AudioStreamPlayer" parent="."]
