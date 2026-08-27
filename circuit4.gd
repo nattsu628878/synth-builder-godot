@@ -29,7 +29,17 @@ var _scope_in := PackedFloat32Array()
 var _scope_out := PackedFloat32Array()
 var _sidx := 0
 
+var _count := {"resistor": 0, "capacitor": 0, "diode": 0, "source": 0, "ground": 0, "output": 0}
+var _spawn_i := 0
+
+const DEFAULTS := {"resistor": 4700.0, "capacitor": 1.0e-8}
+const ABBR := {
+	"resistor": "R", "capacitor": "C", "diode": "D",
+	"source": "SRC", "ground": "GND", "output": "OUT",
+}
+
 @onready var _canvas: Circuit4Canvas = %Canvas
+@onready var _palette: HBoxContainer = %Palette
 @onready var _scope: Control = %Scope
 @onready var _status_label: Label = %StatusLabel
 @onready var _sel_label: Label = %SelLabel
@@ -50,32 +60,62 @@ func _ready() -> void:
 	else:
 		_solver = preload("res://mna_solver.gd").new()
 
-	var r_i := 0
-	var c_i := 0
-	var d_i := 0
+	# parts pre-placed in the scene (source / ground / output)
 	for child in _canvas.get_children():
 		if child is Circuit4Part:
 			_canvas.register_part(child)
-			match child.part_type:
-				"resistor": child.pname = "R%d" % r_i; r_i += 1
-				"capacitor": child.pname = "C%d" % c_i; c_i += 1
-				"diode": child.pname = "D%d" % d_i; d_i += 1
-				"source": child.pname = "SRC"
-				"ground": child.pname = "GND"
-				"output": child.pname = "OUT"
-			var lbl := child.get_node_or_null("Label")
-			if lbl:
-				lbl.text = child.pname
+			child.pname = ABBR[child.part_type]
+			_name_label(child).text = child.pname
+			_spawn_i += 1
+
+	for btn in _palette.get_children():
+		if btn is Button:
+			btn.pressed.connect(_add_part.bind(btn.name.to_lower()))
 
 	_canvas.topology_changed.connect(_recompile)
 	_canvas.selection_changed.connect(_on_selection_changed)
 	_value_slider.value_changed.connect(_on_value_slider)
 	_value_slider.visible = false
-	_sel_label.text = "select a part to edit its value"
+	_sel_label.text = "select a part to edit its value  (Delete removes it)"
 
 	_audio.play()
 	_playback = _audio.get_stream_playback()
 	_recompile()
+
+func _name_label(part: Circuit4Part) -> Label:
+	var lbl: Label = part.get_node_or_null("Label")
+	if lbl == null:
+		lbl = Label.new()
+		lbl.name = "Label"
+		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		part.add_child(lbl)
+	return lbl
+
+func _add_part(type: String) -> void:
+	var p: Circuit4Part = preload("res://circuit4_part.gd").new()
+	p.custom_minimum_size = Vector2(96, 50)
+	p.part_type = type
+	if DEFAULTS.has(type):
+		p.value = DEFAULTS[type]
+	var col := _spawn_i % 6
+	var row := (_spawn_i / 6) % 3
+	p.position = Vector2(70.0 + col * 112.0, 20.0 + row * 84.0)
+	_spawn_i += 1
+	_canvas.add_child(p)
+	_canvas.register_part(p)
+	p.pname = "%s%d" % [ABBR[type], _count[type]]
+	_count[type] += 1
+	_name_label(p).text = p.pname
+	_recompile()
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_DELETE or event.keycode == KEY_BACKSPACE:
+			if _canvas.selected:
+				_canvas.remove_part(_canvas.selected)
+				get_viewport().set_input_as_handled()
 
 func _recompile() -> void:
 	var res := _canvas.compile_netlist()
@@ -101,6 +141,10 @@ func _recompile() -> void:
 		res["num_nodes"], res["netlist"].size(), "Rust" if _using_rust else "GDScript"]
 
 func _on_selection_changed(part: Circuit4Part) -> void:
+	if part == null:
+		_value_slider.visible = false
+		_sel_label.text = "select a part to edit its value  (Delete removes it)"
+		return
 	match part.part_type:
 		"resistor":
 			_value_slider.visible = true

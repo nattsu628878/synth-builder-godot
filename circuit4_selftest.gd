@@ -17,6 +17,12 @@ func _run() -> void:
 	await process_frame
 
 	var canvas: Circuit4Canvas = root.get_node("%Canvas")
+
+	# palette-add the parts the fixed scene no longer pre-places
+	root._add_part("resistor")   # R0
+	root._add_part("capacitor")  # C0
+	root._add_part("diode")      # D0
+
 	var by := {}
 	for p in canvas.parts:
 		by[p.pname] = p

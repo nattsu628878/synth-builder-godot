@@ -36,12 +36,41 @@ theme_override_constants/separation = 8
 
 [node name="Title" type="Label" parent="Margin/VBox"]
 layout_mode = 2
-text = "Spike #4: wire the terminals into a circuit -- it is compiled to a netlist and solved (MnaSolverRs) every sample. Click a terminal (blue), then another, to wire. Click a wire to delete. Click a part to select it. Green = source sawtooth, blue = output probe."
+text = "Spike #4: add parts from the palette, drag them, wire terminal to terminal (blue). Click a wire to delete it. Click a part to select; Delete removes it. The wiring is compiled to a netlist and solved (MnaSolverRs) every sample. Green = source sawtooth, blue = output probe."
 autowrap_mode = 2
+
+[node name="Palette" type="HBoxContainer" parent="Margin/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="Resistor" type="Button" parent="Margin/VBox/Palette"]
+layout_mode = 2
+text = "+ Resistor"
+
+[node name="Capacitor" type="Button" parent="Margin/VBox/Palette"]
+layout_mode = 2
+text = "+ Capacitor"
+
+[node name="Diode" type="Button" parent="Margin/VBox/Palette"]
+layout_mode = 2
+text = "+ Diode"
+
+[node name="Source" type="Button" parent="Margin/VBox/Palette"]
+layout_mode = 2
+text = "+ Source"
+
+[node name="Ground" type="Button" parent="Margin/VBox/Palette"]
+layout_mode = 2
+text = "+ Ground"
+
+[node name="Output" type="Button" parent="Margin/VBox/Palette"]
+layout_mode = 2
+text = "+ Output"
 
 [node name="Scope" type="Control" parent="Margin/VBox"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(780, 180)
+custom_minimum_size = Vector2(780, 170)
 layout_mode = 2
 script = ExtResource("2")
 
@@ -69,6 +98,7 @@ part_type = "source"
 
 [node name="Label" type="Label" parent="Margin/VBox/Canvas/Source"]
 layout_mode = 2
+mouse_filter = 2
 horizontal_alignment = 1
 vertical_alignment = 1
 text = "SRC"
@@ -85,106 +115,24 @@ part_type = "ground"
 
 [node name="Label" type="Label" parent="Margin/VBox/Canvas/Ground"]
 layout_mode = 2
+mouse_filter = 2
 horizontal_alignment = 1
 vertical_alignment = 1
 text = "GND"
 
-[node name="R0" type="PanelContainer" parent="Margin/VBox/Canvas"]
-custom_minimum_size = Vector2(96, 50)
-layout_mode = 0
-offset_left = 210.0
-offset_top = 30.0
-offset_right = 306.0
-offset_bottom = 80.0
-script = ExtResource("4")
-part_type = "resistor"
-value = 4700.0
-
-[node name="Label" type="Label" parent="Margin/VBox/Canvas/R0"]
-layout_mode = 2
-horizontal_alignment = 1
-vertical_alignment = 1
-text = "R0"
-
-[node name="R1" type="PanelContainer" parent="Margin/VBox/Canvas"]
-custom_minimum_size = Vector2(96, 50)
-layout_mode = 0
-offset_left = 210.0
-offset_top = 150.0
-offset_right = 306.0
-offset_bottom = 200.0
-script = ExtResource("4")
-part_type = "resistor"
-value = 4700.0
-
-[node name="Label" type="Label" parent="Margin/VBox/Canvas/R1"]
-layout_mode = 2
-horizontal_alignment = 1
-vertical_alignment = 1
-text = "R1"
-
-[node name="C0" type="PanelContainer" parent="Margin/VBox/Canvas"]
-custom_minimum_size = Vector2(96, 50)
-layout_mode = 0
-offset_left = 400.0
-offset_top = 30.0
-offset_right = 496.0
-offset_bottom = 80.0
-script = ExtResource("4")
-part_type = "capacitor"
-value = 1e-08
-
-[node name="Label" type="Label" parent="Margin/VBox/Canvas/C0"]
-layout_mode = 2
-horizontal_alignment = 1
-vertical_alignment = 1
-text = "C0"
-
-[node name="C1" type="PanelContainer" parent="Margin/VBox/Canvas"]
-custom_minimum_size = Vector2(96, 50)
-layout_mode = 0
-offset_left = 400.0
-offset_top = 150.0
-offset_right = 496.0
-offset_bottom = 200.0
-script = ExtResource("4")
-part_type = "capacitor"
-value = 1e-08
-
-[node name="Label" type="Label" parent="Margin/VBox/Canvas/C1"]
-layout_mode = 2
-horizontal_alignment = 1
-vertical_alignment = 1
-text = "C1"
-
-[node name="Diode" type="PanelContainer" parent="Margin/VBox/Canvas"]
-custom_minimum_size = Vector2(96, 50)
-layout_mode = 0
-offset_left = 560.0
-offset_top = 90.0
-offset_right = 656.0
-offset_bottom = 140.0
-script = ExtResource("4")
-part_type = "diode"
-
-[node name="Label" type="Label" parent="Margin/VBox/Canvas/Diode"]
-layout_mode = 2
-horizontal_alignment = 1
-vertical_alignment = 1
-text = "D0 |>|"
-
 [node name="Output" type="PanelContainer" parent="Margin/VBox/Canvas"]
 custom_minimum_size = Vector2(96, 50)
 layout_mode = 0
-offset_left = 680.0
-offset_top = 40.0
-offset_right = 776.0
-offset_bottom = 90.0
+offset_left = 660.0
+offset_top = 100.0
+offset_right = 756.0
+offset_bottom = 150.0
 script = ExtResource("4")
 part_type = "output"
 
 [node name="Label" type="Label" parent="Margin/VBox/Canvas/Output"]
 layout_mode = 2
+mouse_filter = 2
 horizontal_alignment = 1
 vertical_alignment = 1
 text = "OUT"
