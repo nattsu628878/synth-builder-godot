@@ -61,7 +61,8 @@ func _process(_delta: float) -> void:
 
 	var chain: Array = _canvas.get_chain_from_source()
 	var reaches_output: bool = chain.size() > 0 and chain[-1] == "output"
-	_status_label.text = "Wired to output: yes" if reaches_output else "Wired to output: no -- connect source -> ... -> output"
+	var wired_text := "Wired to output: yes" if reaches_output else "Wired to output: no"
+	_status_label.text = "%s (%s)" % [wired_text, _canvas.get_pending_description()]
 
 	_fill_audio(chain, reaches_output)
 	_scope.set_data(_scope_in, _scope_out)

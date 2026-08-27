@@ -1,49 +1,61 @@
 class_name CircuitCanvas
 extends Control
 
-## Owns the wiring between CircuitBlocks: click an output port then an
-## input port to connect them (replacing any existing connection on
-## either port -- single-wire-per-port, no branching, matches the
-## "series chain" assumption main.gd uses to evaluate the signal).
-## Click empty canvas space to cancel a pending wire, or to delete the
-## nearest wire if none is pending.
+## Owns the wiring between CircuitBlocks. Click any port, then any other
+## port on a different block, to connect them -- order doesn't matter
+## (output-then-input or input-then-output both work; clicking two ports
+## of the same polarity just moves the pending end instead of failing
+## silently). Click empty canvas space to cancel a pending wire, or to
+## delete the nearest wire if none is pending.
 
 const WIRE_HIT_TOLERANCE := 8.0
 
 var blocks: Dictionary = {}       # id (String) -> CircuitBlock
 var connections: Array = []       # [{from: id, to: id}, ...]
 
-var _pending_output_block: String = ""
+var _pending: Dictionary = {}     # {} or {"id": String, "is_output": bool}
 
 func register_block(id: String, block) -> void:
 	blocks[id] = block
-	block.output_port_pressed.connect(_on_output_pressed.bind(id))
-	block.input_port_pressed.connect(_on_input_pressed.bind(id))
+	block.port_pressed.connect(_on_port_pressed.bind(id))
 	block.moved.connect(queue_redraw)
 
-func _on_output_pressed(id: String) -> void:
-	connections = connections.filter(func(c): return c.from != id)
-	_pending_output_block = id
-	queue_redraw()
-
-func _on_input_pressed(id: String) -> void:
-	if _pending_output_block == "" or _pending_output_block == id:
-		_pending_output_block = ""
+func _on_port_pressed(is_output: bool, id: String) -> void:
+	if _pending.is_empty():
+		_pending = {"id": id, "is_output": is_output}
 		queue_redraw()
 		return
-	connections = connections.filter(func(c): return c.to != id)
-	connections.append({"from": _pending_output_block, "to": id})
-	_pending_output_block = ""
+	if _pending["id"] == id:
+		_pending = {}
+		queue_redraw()
+		return
+	if _pending["is_output"] == is_output:
+		# Same polarity clicked twice (e.g. two outputs in a row) -- move
+		# the pending end here instead of doing nothing.
+		_pending = {"id": id, "is_output": is_output}
+		queue_redraw()
+		return
+	var from_id: String = _pending["id"] if _pending["is_output"] else id
+	var to_id: String = id if _pending["is_output"] else _pending["id"]
+	connections = connections.filter(func(c): return c.from != from_id and c.to != to_id)
+	connections.append({"from": from_id, "to": to_id})
+	_pending = {}
 	queue_redraw()
+
+func get_pending_description() -> String:
+	if _pending.is_empty():
+		return "click a port to start a wire"
+	var side := "output" if _pending["is_output"] else "input"
+	return "wiring from %s's %s -- click another port" % [_pending["id"], side]
 
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		if _pending_output_block != "":
-			_pending_output_block = ""
+		if not _pending.is_empty():
+			_pending = {}
 			queue_redraw()
 		else:
 			_try_delete_wire_near(event.position)
-	elif event is InputEventMouseMotion and _pending_output_block != "":
+	elif event is InputEventMouseMotion and not _pending.is_empty():
 		queue_redraw()
 
 func _try_delete_wire_near(p: Vector2) -> void:
@@ -101,6 +113,7 @@ func _draw() -> void:
 		var a: Vector2 = blocks[c.from].get_output_port_global_pos() - global_position
 		var b: Vector2 = blocks[c.to].get_input_port_global_pos() - global_position
 		draw_line(a, b, Color(0.85, 0.85, 0.9), 2.0)
-	if _pending_output_block != "" and blocks.has(_pending_output_block):
-		var a: Vector2 = blocks[_pending_output_block].get_output_port_global_pos() - global_position
+	if not _pending.is_empty() and blocks.has(_pending["id"]):
+		var block = blocks[_pending["id"]]
+		var a: Vector2 = (block.get_output_port_global_pos() if _pending["is_output"] else block.get_input_port_global_pos()) - global_position
 		draw_line(a, get_local_mouse_position(), Color(0.85, 0.8, 0.3, 0.7), 2.0)
