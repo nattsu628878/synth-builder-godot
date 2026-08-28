@@ -353,7 +353,12 @@ func _check_game_scene() -> bool:
 	root._unhandled_input(del)
 	var delete_ok := canvas.parts.size() == before_n - 1
 
-	print("game: ui_ok=%s no_crash=%s pins_ok=%s delete_ok=%s target_kind_after_next=%d" % [
-		ui_ok, no_crash, pins_ok, delete_ok, root._target_kind])
+	# progress dots wiring: solved-set flows to the meter
+	root._solved_set = [true, false, true]
+	root._match_meter.set_progress(root._solved_set, 2)
+	var progress_ok: bool = root._match_meter.progress.count(true) == 2 and root._match_meter.current == 2
+
+	print("game: ui_ok=%s no_crash=%s pins_ok=%s delete_ok=%s progress_ok=%s target_kind_after_next=%d" % [
+		ui_ok, no_crash, pins_ok, delete_ok, progress_ok, root._target_kind])
 	root.queue_free()
-	return ui_ok and no_crash and pins_ok and delete_ok
+	return ui_ok and no_crash and pins_ok and delete_ok and progress_ok

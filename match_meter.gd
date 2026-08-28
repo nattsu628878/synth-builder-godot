@@ -13,6 +13,8 @@ var shape_val := 0.0
 var win_frac := 0.0    # hold progress 0..1
 var solved := false
 var active := false
+var progress: Array = [false, false, false]  # which challenges are solved
+var current := 0                              # 1-based index of the active challenge
 var _flash := 0.0      # 1 -> 0 white pulse on solve
 
 func set_state(m: float, s: float, wf: float, sv: bool, on: bool) -> void:
@@ -22,6 +24,10 @@ func set_state(m: float, s: float, wf: float, sv: bool, on: bool) -> void:
 	solved = sv
 	active = on
 	queue_redraw()
+
+func set_progress(p: Array, cur: int) -> void:
+	progress = p
+	current = cur
 
 func pulse() -> void:
 	_flash = 1.0
@@ -59,9 +65,23 @@ func _draw() -> void:
 		draw_rect(Rect2(tx, h * 0.12, (w - tx) * clampf(win_frac, 0.0, 1.0), h * 0.42),
 			Color(1.0, 0.95, 0.55, 0.8))
 
+	# 1-of-3 progress dots, top-right
+	var solved_n := progress.count(true)
+	for i in 3:
+		var cx := w - 14.0 - float(2 - i) * 16.0
+		var cy := h * 0.30
+		if progress[i]:
+			draw_circle(Vector2(cx, cy), 5.0, Color(0.3, 0.85, 0.45))
+		else:
+			draw_arc(Vector2(cx, cy), 5.0, 0.0, TAU, 16, Color(0.5, 0.53, 0.6), 1.5)
+		if i + 1 == current:
+			draw_arc(Vector2(cx, cy), 8.0, 0.0, TAU, 18, Color(1, 1, 1, 0.5), 1.5)
+
 	var font := get_theme_default_font()
 	var txt := "match %d%%    shape %d%%" % [roundi(mv * 100.0), roundi(sv * 100.0)]
-	if solved:
+	if solved and solved_n >= 3:
+		txt = "★ ALL 3 SOLVED ★    " + txt
+	elif solved:
 		txt = "SOLVED ✓    " + txt
 	draw_string(font, Vector2(6, h - 6), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 12,
 		Color(0.92, 0.94, 0.97))

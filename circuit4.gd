@@ -77,6 +77,7 @@ var _match := 0.0              # smoothed level match, 0..1
 var _shape := 0.0             # smoothed match with a best-fit gain removed
 var _win_time := 0.0
 var _solved := false
+var _solved_set: Array = [false, false, false]  # per-challenge, kept for the session
 var _solve_fx := false     # rising-edge flag: fire the solve cue once
 var _beep_t := 0.0         # remaining seconds of the solve chime
 var _beep_phase := 0.0
@@ -345,8 +346,10 @@ func _process(_delta: float) -> void:
 		_solve_fx = false
 		_beep_t = 0.18
 		_beep_phase = 0.0  # start the chime from zero so repeat solves don't click
+		_solved_set[_target_kind - 1] = true
 		_match_meter.pulse()
 		_need_label.text = "SOLVED ✓   reference:  %s" % CHALLENGES[_target_kind - 1]["hint"]
+	_match_meter.set_progress(_solved_set, _target_kind)
 	_match_meter.set_state(_match, _shape, _win_time / WIN_HOLD_SEC, _solved, _target_kind > 0)
 
 func _on_next_pressed() -> void:

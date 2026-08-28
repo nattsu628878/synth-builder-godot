@@ -1,13 +1,12 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene load_steps=7 format=3 uid="uid://c1eryblcpsmky"]
 
-[ext_resource type="Script" path="res://circuit4.gd" id="1"]
-[ext_resource type="Script" path="res://oscilloscope.gd" id="2"]
-[ext_resource type="Script" path="res://circuit4_canvas.gd" id="3"]
-[ext_resource type="Script" path="res://circuit4_part.gd" id="4"]
+[ext_resource type="Script" uid="uid://bdsoxgrvbnbn6" path="res://circuit4.gd" id="1"]
+[ext_resource type="Script" uid="uid://0tj2sr25lc62" path="res://oscilloscope.gd" id="2"]
+[ext_resource type="Script" uid="uid://dr31b3qmclpdp" path="res://circuit4_canvas.gd" id="3"]
+[ext_resource type="Script" uid="uid://ceu1txuoxgxcu" path="res://circuit4_part.gd" id="4"]
 [ext_resource type="Script" path="res://match_meter.gd" id="5"]
 
 [sub_resource type="AudioStreamGenerator" id="AudioStreamGenerator_1"]
-mix_rate = 44100.0
 buffer_length = 0.1
 
 [node name="Game" type="Control"]
@@ -99,7 +98,6 @@ text = "Next →"
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-text = ""
 
 [node name="MatchMeter" type="Control" parent="Margin/VBox"]
 unique_name_in_owner = true
@@ -120,9 +118,9 @@ text = "..."
 
 [node name="Canvas" type="Control" parent="Margin/VBox"]
 unique_name_in_owner = true
+clip_contents = true
 custom_minimum_size = Vector2(780, 240)
 layout_mode = 2
-clip_contents = true
 script = ExtResource("3")
 
 [node name="Source" type="PanelContainer" parent="Margin/VBox/Canvas"]
@@ -183,7 +181,6 @@ custom_minimum_size = Vector2(420, 22)
 layout_mode = 2
 min_value = 50.0
 max_value = 2000.0
-step = 1.0
 value = 220.0
 
 [node name="AudioPlayer" type="AudioStreamPlayer" parent="."]
