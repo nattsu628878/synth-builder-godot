@@ -35,10 +35,12 @@ func _draw() -> void:
 
 	var font := get_theme_default_font()
 	var fs := 11
-	draw_string(font, Vector2(8, 16), "— input", HORIZONTAL_ALIGNMENT_LEFT, -1, fs, COL_IN)
-	draw_string(font, Vector2(8, 30), "— your output", HORIZONTAL_ALIGNMENT_LEFT, -1, fs, COL_OUT)
+	var rows := 3 if show_target else 2
+	draw_rect(Rect2(4, 5, 96, 6 + rows * 14), Color(0.05, 0.05, 0.07, 0.72))
+	draw_string(font, Vector2(10, 18), "— input", HORIZONTAL_ALIGNMENT_LEFT, -1, fs, COL_IN)
+	draw_string(font, Vector2(10, 32), "— your output", HORIZONTAL_ALIGNMENT_LEFT, -1, fs, COL_OUT)
 	if show_target:
-		draw_string(font, Vector2(8, 44), "-- target", HORIZONTAL_ALIGNMENT_LEFT, -1, fs, COL_TARGET)
+		draw_string(font, Vector2(10, 46), "-- target", HORIZONTAL_ALIGNMENT_LEFT, -1, fs, COL_TARGET)
 
 func _points(data: PackedFloat32Array) -> PackedVector2Array:
 	var pts := PackedVector2Array()

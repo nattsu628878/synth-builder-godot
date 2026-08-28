@@ -26,7 +26,7 @@ func set_state(m: float, s: float, wf: float, sv: bool, on: bool) -> void:
 	queue_redraw()
 
 func set_progress(p: Array, cur: int) -> void:
-	progress = p
+	progress = p if p.size() >= 3 else [false, false, false]
 	current = cur
 
 func pulse() -> void:

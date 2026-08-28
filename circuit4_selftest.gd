@@ -328,7 +328,8 @@ func _check_game_scene() -> bool:
 		and root.get_node_or_null("%TargetOption") != null \
 		and root.get_node_or_null("%NextBtn") != null \
 		and root.get_node_or_null("%NeedLabel") != null \
-		and root.get_node_or_null("%PatchName") == null  # dev-only, must be absent
+		and root.get_node_or_null("%PatchName") == null \
+		and root.get_node_or_null("Margin/Scroll") is ScrollContainer  # content scrolls, doesn't clip
 	var no_crash := root._patch_name == null and root._solver != null
 
 	var pins_ok := true

@@ -119,7 +119,7 @@ func _ready() -> void:
 	_target.resize(SCOPE_SAMPLES)
 	var win := get_window()
 	if win:
-		win.min_size = Vector2i(780, 640)
+		win.min_size = Vector2i(720, 480)  # content scrolls (game.tscn wraps in a ScrollContainer)
 
 	if ClassDB.class_exists(RUST_CLASS):
 		_solver = ClassDB.instantiate(RUST_CLASS)
@@ -346,7 +346,8 @@ func _process(_delta: float) -> void:
 		_solve_fx = false
 		_beep_t = 0.18
 		_beep_phase = 0.0  # start the chime from zero so repeat solves don't click
-		_solved_set[_target_kind - 1] = true
+		if _target_kind >= 1:
+			_solved_set[_target_kind - 1] = true
 		_match_meter.pulse()
 		_need_label.text = "SOLVED ✓   reference:  %s" % CHALLENGES[_target_kind - 1]["hint"]
 	_match_meter.set_progress(_solved_set, _target_kind)

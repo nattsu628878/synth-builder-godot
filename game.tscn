@@ -1,12 +1,13 @@
-[gd_scene load_steps=7 format=3 uid="uid://c1eryblcpsmky"]
+[gd_scene load_steps=7 format=3]
 
-[ext_resource type="Script" uid="uid://bdsoxgrvbnbn6" path="res://circuit4.gd" id="1"]
-[ext_resource type="Script" uid="uid://0tj2sr25lc62" path="res://oscilloscope.gd" id="2"]
-[ext_resource type="Script" uid="uid://dr31b3qmclpdp" path="res://circuit4_canvas.gd" id="3"]
-[ext_resource type="Script" uid="uid://ceu1txuoxgxcu" path="res://circuit4_part.gd" id="4"]
+[ext_resource type="Script" path="res://circuit4.gd" id="1"]
+[ext_resource type="Script" path="res://oscilloscope.gd" id="2"]
+[ext_resource type="Script" path="res://circuit4_canvas.gd" id="3"]
+[ext_resource type="Script" path="res://circuit4_part.gd" id="4"]
 [ext_resource type="Script" path="res://match_meter.gd" id="5"]
 
 [sub_resource type="AudioStreamGenerator" id="AudioStreamGenerator_1"]
+mix_rate = 44100.0
 buffer_length = 0.1
 
 [node name="Game" type="Control"]
@@ -30,100 +31,106 @@ theme_override_constants/margin_top = 16
 theme_override_constants/margin_right = 16
 theme_override_constants/margin_bottom = 16
 
-[node name="VBox" type="VBoxContainer" parent="Margin"]
+[node name="Scroll" type="ScrollContainer" parent="Margin"]
 layout_mode = 2
+horizontal_scroll_mode = 0
+
+[node name="VBox" type="VBoxContainer" parent="Margin/Scroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
 theme_override_constants/separation = 8
 
-[node name="Title" type="Label" parent="Margin/VBox"]
+[node name="Title" type="Label" parent="Margin/Scroll/VBox"]
 layout_mode = 2
-text = "Pick a target, then build a circuit whose output (blue) matches the reference (amber). Add parts from the palette, drag them, wire terminal-to-terminal. Turn a part's knob to tune (Shift = fine). Hold match ≥92% to solve."
+text = "Pick a target, then build a circuit whose output (blue) matches the reference (amber). Wire terminal-to-terminal; turn a part's knob to tune (Shift = fine). Hold match ≥92% to solve."
 autowrap_mode = 2
 
-[node name="Palette" type="HBoxContainer" parent="Margin/VBox"]
+[node name="Palette" type="HBoxContainer" parent="Margin/Scroll/VBox"]
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_constants/separation = 6
 
-[node name="Resistor" type="Button" parent="Margin/VBox/Palette"]
+[node name="Resistor" type="Button" parent="Margin/Scroll/VBox/Palette"]
 layout_mode = 2
 text = "+ Resistor"
 
-[node name="Capacitor" type="Button" parent="Margin/VBox/Palette"]
+[node name="Capacitor" type="Button" parent="Margin/Scroll/VBox/Palette"]
 layout_mode = 2
 text = "+ Capacitor"
 
-[node name="Diode" type="Button" parent="Margin/VBox/Palette"]
+[node name="Diode" type="Button" parent="Margin/Scroll/VBox/Palette"]
 layout_mode = 2
 text = "+ Diode"
 
-[node name="Transistor" type="Button" parent="Margin/VBox/Palette"]
+[node name="Transistor" type="Button" parent="Margin/Scroll/VBox/Palette"]
 layout_mode = 2
 text = "+ Transistor"
 
-[node name="Ota" type="Button" parent="Margin/VBox/Palette"]
+[node name="Ota" type="Button" parent="Margin/Scroll/VBox/Palette"]
 layout_mode = 2
 text = "+ OTA"
 
-[node name="Source" type="Button" parent="Margin/VBox/Palette"]
+[node name="Source" type="Button" parent="Margin/Scroll/VBox/Palette"]
 layout_mode = 2
 text = "+ Source"
 
-[node name="Ground" type="Button" parent="Margin/VBox/Palette"]
+[node name="Ground" type="Button" parent="Margin/Scroll/VBox/Palette"]
 layout_mode = 2
 text = "+ Ground"
 
-[node name="Output" type="Button" parent="Margin/VBox/Palette"]
+[node name="Output" type="Button" parent="Margin/Scroll/VBox/Palette"]
 layout_mode = 2
 text = "+ Output"
 
-[node name="ChallengeBar" type="HBoxContainer" parent="Margin/VBox"]
+[node name="ChallengeBar" type="HBoxContainer" parent="Margin/Scroll/VBox"]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="TargetLbl" type="Label" parent="Margin/VBox/ChallengeBar"]
+[node name="TargetLbl" type="Label" parent="Margin/Scroll/VBox/ChallengeBar"]
 layout_mode = 2
 text = "Target:"
 
-[node name="TargetOption" type="OptionButton" parent="Margin/VBox/ChallengeBar"]
+[node name="TargetOption" type="OptionButton" parent="Margin/Scroll/VBox/ChallengeBar"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(150, 0)
 layout_mode = 2
 
-[node name="NextBtn" type="Button" parent="Margin/VBox/ChallengeBar"]
+[node name="NextBtn" type="Button" parent="Margin/Scroll/VBox/ChallengeBar"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Next →"
 
-[node name="NeedLabel" type="Label" parent="Margin/VBox/ChallengeBar"]
+[node name="NeedLabel" type="Label" parent="Margin/Scroll/VBox/ChallengeBar"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="MatchMeter" type="Control" parent="Margin/VBox"]
+[node name="MatchMeter" type="Control" parent="Margin/Scroll/VBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(780, 26)
 layout_mode = 2
 script = ExtResource("5")
 
-[node name="Scope" type="Control" parent="Margin/VBox"]
+[node name="Scope" type="Control" parent="Margin/Scroll/VBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(780, 180)
 layout_mode = 2
 script = ExtResource("2")
 
-[node name="StatusLabel" type="Label" parent="Margin/VBox"]
+[node name="StatusLabel" type="Label" parent="Margin/Scroll/VBox"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "..."
 
-[node name="Canvas" type="Control" parent="Margin/VBox"]
+[node name="Canvas" type="Control" parent="Margin/Scroll/VBox"]
 unique_name_in_owner = true
 clip_contents = true
 custom_minimum_size = Vector2(780, 240)
 layout_mode = 2
 script = ExtResource("3")
 
-[node name="Source" type="PanelContainer" parent="Margin/VBox/Canvas"]
+[node name="Source" type="PanelContainer" parent="Margin/Scroll/VBox/Canvas"]
 custom_minimum_size = Vector2(96, 50)
 layout_mode = 0
 offset_left = 20.0
@@ -133,7 +140,7 @@ offset_bottom = 90.0
 script = ExtResource("4")
 part_type = "source"
 
-[node name="Ground" type="PanelContainer" parent="Margin/VBox/Canvas"]
+[node name="Ground" type="PanelContainer" parent="Margin/Scroll/VBox/Canvas"]
 custom_minimum_size = Vector2(96, 50)
 layout_mode = 0
 offset_left = 20.0
@@ -143,7 +150,7 @@ offset_bottom = 220.0
 script = ExtResource("4")
 part_type = "ground"
 
-[node name="Output" type="PanelContainer" parent="Margin/VBox/Canvas"]
+[node name="Output" type="PanelContainer" parent="Margin/Scroll/VBox/Canvas"]
 custom_minimum_size = Vector2(96, 50)
 layout_mode = 0
 offset_left = 660.0
@@ -153,16 +160,16 @@ offset_bottom = 150.0
 script = ExtResource("4")
 part_type = "output"
 
-[node name="SelLabel" type="Label" parent="Margin/VBox"]
+[node name="SelLabel" type="Label" parent="Margin/Scroll/VBox"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "select a part"
 
-[node name="DriveRow" type="Label" parent="Margin/VBox"]
+[node name="DriveRow" type="Label" parent="Margin/Scroll/VBox"]
 layout_mode = 2
 text = "Drive (V peak) — pinned during a challenge"
 
-[node name="DriveSlider" type="HSlider" parent="Margin/VBox"]
+[node name="DriveSlider" type="HSlider" parent="Margin/Scroll/VBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(420, 22)
 layout_mode = 2
@@ -171,11 +178,11 @@ max_value = 5.0
 step = 0.05
 value = 1.5
 
-[node name="FreqRow" type="Label" parent="Margin/VBox"]
+[node name="FreqRow" type="Label" parent="Margin/Scroll/VBox"]
 layout_mode = 2
 text = "Frequency (Hz) — pinned during a challenge"
 
-[node name="FreqSlider" type="HSlider" parent="Margin/VBox"]
+[node name="FreqSlider" type="HSlider" parent="Margin/Scroll/VBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(420, 22)
 layout_mode = 2
