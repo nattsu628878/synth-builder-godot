@@ -363,6 +363,9 @@ func _check_game_scene() -> bool:
 	var si_ok: bool = absf(root._parse_si("4.7k") - 4700.0) < 1e-6 \
 		and absf(root._parse_si("10n") - 1.0e-8) < 1e-15 \
 		and absf(root._parse_si("1e-6") - 1.0e-6) < 1e-15 \
+		and absf(root._parse_si("1M") - 1.0e6) < 1e-3 \
+		and absf(root._parse_si("2meg") - 2.0e6) < 1e-3 \
+		and absf(root._parse_si("5m") - 5.0e-3) < 1e-9 \
 		and is_nan(root._parse_si("junk"))
 	root._add_part("resistor")
 	var rp: Circuit4Part = canvas.parts[-1]

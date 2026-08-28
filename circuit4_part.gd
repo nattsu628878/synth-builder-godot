@@ -92,8 +92,8 @@ func _term_at(local_pos: Vector2) -> int:
 			return i
 	return -1
 
-func _on_knob() -> bool:
-	return has_knob() and _last_mouse.distance_to(_knob_center()) <= KNOB_R + 4.0
+func _on_knob(at: Vector2 = _last_mouse) -> bool:
+	return has_knob() and at.distance_to(_knob_center()) <= KNOB_R + 4.0
 
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
@@ -120,7 +120,7 @@ func _gui_input(event: InputEvent) -> void:
 			_knob_drag = false
 	elif event is InputEventMouseButton and event.pressed \
 			and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN] \
-			and _on_knob():
+			and _on_knob(event.position):
 		var d := 0.03 if event.button_index == MOUSE_BUTTON_WHEEL_UP else -0.03
 		_set_norm(_value_norm() + d)
 		value_changed.emit(self)

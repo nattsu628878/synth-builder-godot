@@ -347,7 +347,10 @@ func _on_part_value_changed(part: Circuit4Part) -> void:
 func _on_part_edit_requested(part: Circuit4Part) -> void:
 	_edit_target = part
 	_value_edit.text = part.value_text().trim_suffix("ohm").trim_suffix("F").trim_suffix("A")
-	_value_edit.position = part.position + Vector2(0.0, part.size.y + 3.0)
+	# below the part, unless that would fall outside the (clipped) canvas -> above
+	var below := part.position.y + part.size.y + 3.0
+	_value_edit.position = Vector2(part.position.x,
+		below if below + 26.0 <= _canvas.size.y else part.position.y - 25.0)
 	_value_edit.visible = true
 	_value_edit.grab_focus()
 	_value_edit.select_all()
@@ -365,10 +368,11 @@ func _on_value_edit_submitted(txt: String) -> void:
 			_sel_label.text = _part_desc(_edit_target)
 
 func _parse_si(s: String) -> float:
-	s = s.strip_edges().to_lower()
+	s = s.strip_edges()
 	var mult := 1.0
-	for suf in [["meg", 1.0e6], ["k", 1.0e3], ["g", 1.0e9], ["m", 1.0e-3],
-			["u", 1.0e-6], ["µ", 1.0e-6], ["n", 1.0e-9], ["p", 1.0e-12]]:
+	# case-sensitive first (M/meg = mega, m = milli), then lowercase the rest
+	for suf in [["meg", 1.0e6], ["M", 1.0e6], ["k", 1.0e3], ["K", 1.0e3], ["G", 1.0e9],
+			["g", 1.0e9], ["m", 1.0e-3], ["u", 1.0e-6], ["µ", 1.0e-6], ["n", 1.0e-9], ["p", 1.0e-12]]:
 		if s.ends_with(suf[0]):
 			mult = suf[1]
 			s = s.substr(0, s.length() - String(suf[0]).length())
