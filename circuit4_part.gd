@@ -9,6 +9,7 @@ extends PanelContainer
 signal terminal_pressed(part: Circuit4Part, term: int)
 signal body_selected(part: Circuit4Part)
 signal value_changed(part: Circuit4Part)
+signal edit_requested(part: Circuit4Part)   # double-click a knob -> type an exact value
 signal moved
 
 const TERM_RADIUS := 7.0
@@ -33,6 +34,7 @@ var selected := false
 var _dragging := false
 var _knob_drag := false
 var _hover_term := -1
+var _last_mouse := Vector2.ZERO
 
 func has_knob() -> bool:
 	return VRANGE.has(part_type)
@@ -90,16 +92,23 @@ func _term_at(local_pos: Vector2) -> int:
 			return i
 	return -1
 
+func _on_knob() -> bool:
+	return has_knob() and _last_mouse.distance_to(_knob_center()) <= KNOB_R + 4.0
+
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		_last_mouse = event.position
 		if event.pressed:
 			var t := _term_at(event.position)
 			if t != -1:
 				terminal_pressed.emit(self, t)
 				accept_event()
 				return
-			if has_knob() and event.position.distance_to(_knob_center()) <= KNOB_R + 4.0:
-				_knob_drag = true
+			if _on_knob():
+				if event.double_click:
+					edit_requested.emit(self)
+				else:
+					_knob_drag = true
 				body_selected.emit(self)
 				accept_event()
 				return
@@ -109,7 +118,16 @@ func _gui_input(event: InputEvent) -> void:
 		else:
 			_dragging = false
 			_knob_drag = false
+	elif event is InputEventMouseButton and event.pressed \
+			and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN] \
+			and _on_knob():
+		var d := 0.03 if event.button_index == MOUSE_BUTTON_WHEEL_UP else -0.03
+		_set_norm(_value_norm() + d)
+		value_changed.emit(self)
+		queue_redraw()
+		accept_event()
 	elif event is InputEventMouseMotion:
+		_last_mouse = event.position
 		if _knob_drag:
 			var sens := KNOB_SENS * (0.25 if event.shift_pressed else 1.0)  # Shift = fine
 			_set_norm(_value_norm() - event.relative.y * sens)  # drag up = more
@@ -177,6 +195,11 @@ func _draw() -> void:
 	if has_knob():
 		var kc := _knob_center()
 		draw_arc(kc, KNOB_R, 0.0, TAU, 18, Color(0.55, 0.6, 0.68), 2.0)
+		# min / max ticks at the sweep extremes
+		for extreme in [-KNOB_SWEEP, KNOB_SWEEP]:
+			var ea: float = -PI / 2.0 + extreme
+			var ed := Vector2(cos(ea), sin(ea))
+			draw_line(kc + ed * (KNOB_R - 1.0), kc + ed * (KNOB_R + 3.0), Color(0.5, 0.53, 0.6), 1.5)
 		var a: float = -PI / 2.0 + lerpf(-KNOB_SWEEP, KNOB_SWEEP, _value_norm())
 		draw_line(kc, kc + Vector2(cos(a), sin(a)) * (KNOB_R - 2.0), Color(1.0, 0.85, 0.4), 2.5)
 

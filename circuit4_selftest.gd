@@ -359,7 +359,18 @@ func _check_game_scene() -> bool:
 	root._match_meter.set_progress(root._solved_set, 2)
 	var progress_ok: bool = root._match_meter.progress.count(true) == 2 and root._match_meter.current == 2
 
-	print("game: ui_ok=%s no_crash=%s pins_ok=%s delete_ok=%s progress_ok=%s target_kind_after_next=%d" % [
-		ui_ok, no_crash, pins_ok, delete_ok, progress_ok, root._target_kind])
+	# knob numeric entry: SI parse + typed value reaches the part
+	var si_ok: bool = absf(root._parse_si("4.7k") - 4700.0) < 1e-6 \
+		and absf(root._parse_si("10n") - 1.0e-8) < 1e-15 \
+		and absf(root._parse_si("1e-6") - 1.0e-6) < 1e-15 \
+		and is_nan(root._parse_si("junk"))
+	root._add_part("resistor")
+	var rp: Circuit4Part = canvas.parts[-1]
+	root._on_part_edit_requested(rp)
+	root._on_value_edit_submitted("22k")
+	var edit_ok: bool = rp.part_type == "resistor" and absf(rp.value - 22000.0) < 1.0
+
+	print("game: ui_ok=%s no_crash=%s pins_ok=%s delete_ok=%s progress_ok=%s si_ok=%s edit_ok=%s" % [
+		ui_ok, no_crash, pins_ok, delete_ok, progress_ok, si_ok, edit_ok])
 	root.queue_free()
-	return ui_ok and no_crash and pins_ok and delete_ok and progress_ok
+	return ui_ok and no_crash and pins_ok and delete_ok and progress_ok and si_ok and edit_ok

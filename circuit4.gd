@@ -79,6 +79,8 @@ var _win_time := 0.0
 var _solved := false
 var _solved_set: Array = [false, false, false]  # per-challenge, kept for the session
 var _solve_fx := false     # rising-edge flag: fire the solve cue once
+var _value_edit: LineEdit
+var _edit_target: Circuit4Part
 var _beep_t := 0.0         # remaining seconds of the solve chime
 var _beep_phase := 0.0
 
@@ -142,6 +144,13 @@ func _ready() -> void:
 	_canvas.topology_changed.connect(_recompile)
 	_canvas.selection_changed.connect(_on_selection_changed)
 	_canvas.part_value_changed.connect(_on_part_value_changed)
+	_canvas.part_edit_requested.connect(_on_part_edit_requested)
+	_value_edit = LineEdit.new()
+	_value_edit.custom_minimum_size = Vector2(96, 0)
+	_value_edit.visible = false
+	_value_edit.text_submitted.connect(_on_value_edit_submitted)
+	_value_edit.focus_exited.connect(func(): _value_edit.visible = false)
+	_canvas.add_child(_value_edit)
 	_sel_label.text = "drag a part's knob to set its value  (click a part, Delete removes it)"
 
 	if _save_btn:
@@ -332,6 +341,39 @@ func _on_part_value_changed(part: Circuit4Part) -> void:
 	_solver.set_value(part.pname, part.value)
 	if _canvas.selected == part:
 		_sel_label.text = _part_desc(part)
+
+## double-click a knob -> a small field to type an exact value (accepts
+## "4700", "4.7k", "10n", "1e-6", "3u" ...)
+func _on_part_edit_requested(part: Circuit4Part) -> void:
+	_edit_target = part
+	_value_edit.text = part.value_text().trim_suffix("ohm").trim_suffix("F").trim_suffix("A")
+	_value_edit.position = part.position + Vector2(0.0, part.size.y + 3.0)
+	_value_edit.visible = true
+	_value_edit.grab_focus()
+	_value_edit.select_all()
+
+func _on_value_edit_submitted(txt: String) -> void:
+	_value_edit.visible = false
+	var v := _parse_si(txt)
+	if _edit_target != null and is_finite(v) and v > 0.0:
+		var r: Array = Circuit4Part.VRANGE.get(_edit_target.part_type, [v, v])
+		v = clampf(v, r[0], r[1])
+		_edit_target.value = v
+		_solver.set_value(_edit_target.pname, v)
+		_edit_target.queue_redraw()
+		if _canvas.selected == _edit_target:
+			_sel_label.text = _part_desc(_edit_target)
+
+func _parse_si(s: String) -> float:
+	s = s.strip_edges().to_lower()
+	var mult := 1.0
+	for suf in [["meg", 1.0e6], ["k", 1.0e3], ["g", 1.0e9], ["m", 1.0e-3],
+			["u", 1.0e-6], ["µ", 1.0e-6], ["n", 1.0e-9], ["p", 1.0e-12]]:
+		if s.ends_with(suf[0]):
+			mult = suf[1]
+			s = s.substr(0, s.length() - String(suf[0]).length())
+			break
+	return s.to_float() * mult if s.is_valid_float() else NAN
 
 func _process(_delta: float) -> void:
 	_freq = _freq_slider.value

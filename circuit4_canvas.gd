@@ -8,6 +8,7 @@ extends Control
 signal topology_changed
 signal selection_changed(part: Circuit4Part)
 signal part_value_changed(part: Circuit4Part)
+signal part_edit_requested(part: Circuit4Part)
 
 const WIRE_HIT := 8.0
 const TKEY := 3   # terminal-key stride (max terminals on any part)
@@ -26,6 +27,7 @@ func register_part(p: Circuit4Part) -> void:
 	p.terminal_pressed.connect(_on_terminal_pressed)
 	p.body_selected.connect(_on_body_selected)
 	p.value_changed.connect(func(pt): part_value_changed.emit(pt))
+	p.edit_requested.connect(func(pt): part_edit_requested.emit(pt))
 	p.moved.connect(queue_redraw)
 
 func clear_all() -> void:
