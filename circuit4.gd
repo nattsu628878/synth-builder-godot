@@ -66,9 +66,9 @@ const CHALLENGES := [
 		],
 	},
 	{
-		"name": "OTA 2-pole LP VCF", "freq": 220.0, "drive": 1.5, "out_pos": "out", "out_neg": "gnd",
-		"need": "needs: 2 OTAs + 2 capacitors   —   SRC → OTA1(in+);  OTA1 out → OTA1(in−) & C1 → GND;  OTA1 out → OTA2(in+);  OTA2 out → OTA2(in−), OUT, & C2 → GND",
-		"hint": "two cascaded OTA integrators, Iabc=300nA, C=10nF each (an active 2-pole VCF, not just an RC)",
+		"name": "OTA 2-pole LP VCF", "freq": 220.0, "drive": 0.02, "out_pos": "out", "out_neg": "gnd",
+		"need": "needs: 2 OTAs + 2 capacitors (cascaded)   —   SRC → OTA-A(in+);  OTA-A: out → in− (self-loop) & out → its own cap → GND;  OTA-A out → OTA-B(in+);  OTA-B: out → in− (self-loop) & out → its own cap → GND & out → OUT",
+		"hint": "two cascaded OTA integrators, Iabc=300nA, C=10nF each (an active 2-pole VCF, not just an RC -- drive is pinned low so the OTAs stay in their linear range instead of slew-saturating)",
 		"netlist": [
 			{"type": "V", "name": "vin", "nodes": ["in", "gnd"], "value": 0.0},
 			{"type": "OTA", "name": "ota1", "nodes": ["m1", "in", "m1"], "value": 3.0e-7},
