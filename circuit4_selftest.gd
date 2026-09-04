@@ -259,6 +259,16 @@ func _check_challenge_match() -> bool:
 			"values": {"R0": 10000.0},
 			"settle": 2000,
 		},
+		{  # 4: OTA 2-pole LP VCF (two cascaded OTA integrators)
+			"add": ["ota", "capacitor", "ota", "capacitor"],
+			"wires": [["SRC", 0, "OTA0", 1], ["SRC", 1, "GND", 0],
+				["OTA0", 0, "OTA0", 2], ["OTA0", 0, "C0", 0], ["C0", 1, "GND", 0],
+				["OTA0", 0, "OTA1", 1],
+				["OTA1", 0, "OTA1", 2], ["OTA1", 0, "C1", 0], ["C1", 1, "GND", 0],
+				["OUT", 0, "OTA1", 0], ["OUT", 1, "GND", 0]],
+			"values": {"OTA0": 3.0e-7, "OTA1": 3.0e-7, "C0": 10.0e-9, "C1": 10.0e-9},
+			"settle": 8000,  # slower cutoff (~92 Hz cascaded) than the RC/diode challenges
+		},
 	]
 	var all_ok := true
 	for ci in builds.size():
@@ -333,7 +343,7 @@ func _check_game_scene() -> bool:
 	var no_crash := root._patch_name == null and root._solver != null
 
 	var pins_ok := true
-	for k in [1, 2, 3]:
+	for k in range(1, root.CHALLENGES.size() + 1):
 		root._on_target_selected(k)
 		if root._ref_solver == null or root._freq_slider.editable or root._drive_slider.editable:
 			pins_ok = false
@@ -354,10 +364,18 @@ func _check_game_scene() -> bool:
 	root._unhandled_input(del)
 	var delete_ok := canvas.parts.size() == before_n - 1
 
-	# progress dots wiring: solved-set flows to the meter
-	root._solved_set = [true, false, true]
+	# progress dots wiring: solved-set flows to the meter (sized to CHALLENGES,
+	# now 4 with the OTA VCF challenge -- the dot count must track that, not 3)
+	var n_ch: int = root.CHALLENGES.size()
+	var sset: Array = [true, false, true]
+	sset.resize(n_ch)  # pads new slots with null, not false -- normalize below
+	for i in n_ch:
+		if sset[i] == null:
+			sset[i] = false
+	root._solved_set = sset
 	root._match_meter.set_progress(root._solved_set, 2)
-	var progress_ok: bool = root._match_meter.progress.count(true) == 2 and root._match_meter.current == 2
+	var progress_ok: bool = root._match_meter.progress.size() == n_ch \
+		and root._match_meter.progress.count(true) == 2 and root._match_meter.current == 2
 
 	# knob numeric entry: SI parse + typed value reaches the part
 	var si_ok: bool = absf(root._parse_si("4.7k") - 4700.0) < 1e-6 \

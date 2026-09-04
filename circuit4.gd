@@ -65,6 +65,18 @@ const CHALLENGES := [
 			{"type": "R", "nodes": ["out", "gnd"], "value": 10000.0},
 		],
 	},
+	{
+		"name": "OTA 2-pole LP VCF", "freq": 220.0, "drive": 1.5, "out_pos": "out", "out_neg": "gnd",
+		"need": "needs: 2 OTAs + 2 capacitors   —   SRC → OTA1(in+);  OTA1 out → OTA1(in−) & C1 → GND;  OTA1 out → OTA2(in+);  OTA2 out → OTA2(in−), OUT, & C2 → GND",
+		"hint": "two cascaded OTA integrators, Iabc=300nA, C=10nF each (an active 2-pole VCF, not just an RC)",
+		"netlist": [
+			{"type": "V", "name": "vin", "nodes": ["in", "gnd"], "value": 0.0},
+			{"type": "OTA", "name": "ota1", "nodes": ["m1", "in", "m1"], "value": 3.0e-7},
+			{"type": "C", "nodes": ["m1", "gnd"], "value": 10.0e-9},
+			{"type": "OTA", "name": "ota2", "nodes": ["out", "m1", "out"], "value": 3.0e-7},
+			{"type": "C", "nodes": ["out", "gnd"], "value": 10.0e-9},
+		],
+	},
 ]
 const WIN_MATCH := 0.92
 const WIN_DROP := 0.88      # hysteresis: hold-timer only resets below this
@@ -77,7 +89,7 @@ var _match := 0.0              # smoothed level match, 0..1
 var _shape := 0.0             # smoothed match with a best-fit gain removed
 var _win_time := 0.0
 var _solved := false
-var _solved_set: Array = [false, false, false]  # per-challenge, kept for the session
+var _solved_set: Array = []  # per-challenge, kept for the session; sized in _ready()
 var _solve_fx := false     # rising-edge flag: fire the solve cue once
 var _value_edit: LineEdit
 var _edit_target: Circuit4Part
@@ -119,6 +131,8 @@ func _ready() -> void:
 	_scope_in.resize(SCOPE_SAMPLES)
 	_scope_out.resize(SCOPE_SAMPLES)
 	_target.resize(SCOPE_SAMPLES)
+	_solved_set.resize(CHALLENGES.size())
+	_solved_set.fill(false)
 	var win := get_window()
 	if win:
 		win.min_size = Vector2i(720, 480)  # content scrolls (game.tscn wraps in a ScrollContainer)
