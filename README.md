@@ -3,9 +3,39 @@
 Research-leaning simulation game where the player designs and builds synths.
 Design record and rationale live in `nattsu-hub/projects/synth-builder-godot.md`.
 
-This repo is currently a series of throwaway spikes, not the game.
+The current playable prototype is `game.tscn` (the project's main scene).
+Build and wire a circuit, adjust component knobs, and match the live target
+waveform. Hold at least 92% agreement for about 0.7 seconds to solve a challenge.
+The four challenges cover RC low-pass, diode soft clipping, half-wave
+rectification, and an OTA two-pole low-pass VCF.
 
-## Spikes
+## Run and develop
+
+Use Godot 4.4.1 and build the Rust extension below, then run `godot --path .`
+from this directory, or open `project.godot` in the editor and press F6 with
+`game.tscn` open. `circuit4.tscn` is the development workbench with JSON patch
+save/load; `game.tscn` shares its circuit host and omits the patch bar.
+
+- Add components from the palette and click terminals to wire them.
+- Drag component knobs to adjust values; Shift-drag gives finer control.
+- Use the mouse wheel over a knob, or double-click it to enter a value such as `4.7k` or `10n`.
+- Select a part and press Delete to remove it.
+- Choose a target for a challenge, or `off` for free experimentation.
+
+Validation commands (the self-test writes a `selftest` patch under Godot's user data):
+
+```sh
+cargo test --manifest-path rust/Cargo.toml
+godot --headless --audio-driver Dummy --script circuit4_selftest.gd
+godot --headless --script bench_mna.gd
+```
+
+The self-test checks wiring, save/load, capacitor-state carryover, BJT/OTA
+behavior, all four reference matches, and game controls. The benchmark compares
+Rust and GDScript solver outputs and measures circuit processing costs.
+These checks do not establish visual quality, sound quality, or playing feel.
+
+## Earlier spikes and solver references
 
 | Scene / file | What it probes |
 |---|---|
