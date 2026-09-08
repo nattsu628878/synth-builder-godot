@@ -3,37 +3,73 @@
 Research-leaning simulation game where the player designs and builds synths.
 Design record and rationale live in `nattsu-hub/projects/synth-builder-godot.md`.
 
-The current playable prototype is `game.tscn` (the project's main scene).
-Build and wire a circuit, adjust component knobs, and match the live target
-waveform. Hold at least 92% agreement for about 0.7 seconds to solve a challenge.
-The four challenges cover RC low-pass, diode soft clipping, half-wave
-rectification, and an OTA two-pole low-pass VCF.
+The main scene is now `instrument_designer.tscn`: a first software-instrument
+builder. Choose the instrument's modules, expose parameters on your own
+performance panel, then play and return to the design to refine it.
+The earlier circuit waveform-matching game is preserved in `game.tscn`.
 
-## Run and develop
+## Run and try it
 
-Use Godot 4.4.1 and build the Rust extension below, then run `godot --path .`
-from this directory, or open `project.godot` in the editor and press F6 with
-`game.tscn` open. `circuit4.tscn` is the development workbench with JSON patch
-save/load; `game.tscn` shares its circuit host and omits the patch bar.
+Use Godot 4.4.1. Build the native engine first (restart an already-open Godot
+editor after rebuilding):
 
-- Add components from the palette and click terminals to wire them.
-- Drag component knobs to adjust values; Shift-drag gives finer control.
-- Use the mouse wheel over a knob, or double-click it to enter a value such as `4.7k` or `10n`.
-- Select a part and press Delete to remove it.
-- Choose a target for a challenge, or `off` for free experimentation.
+```sh
+cargo build --manifest-path rust/Cargo.toml
+godot --path .
+```
 
-Validation commands (the self-test writes a `selftest` patch under Godot's user data):
+Or open `project.godot` in Godot and press F5.
+
+1. **Design:** start with three oscillators and two LFOs. Add/remove modules,
+   choose sine/saw/square waves, change tuning, level, and individual filters.
+2. Set each LFO's speed, depth, and destination (one oscillator or all).
+3. Use **+ Panel control** next to a parameter to expose it for performance.
+4. Open **Panel**. Its controls change the same live instrument. Enable
+   **Edit layout** to drag controls by their headers, rename them, or remove them.
+5. Play with the on-screen keys, computer keys A W S E D F T G Y H U J K
+   (C4–C5), or MIDI note input. **Stop** releases every note.
+6. Return to **Design** to revise the instrument. **Save/Load** preserves the
+   topology, parameter values, bindings, labels, and layout as JSON under
+   `user://instruments/`. Saving the same instrument name replaces its file.
+
+## Current scope
+
+- Up to 8 oscillators, each optionally through its own one-pole low-pass filter,
+  summed to the output; 8-note polyphony and a fixed attack/release envelope.
+- Up to 8 shared, free-running sine LFOs. They modulate filter cutoff only;
+  depth 1 means ±4 octaves. Bypassed filters are unaffected audibly.
+- Up to 32 panel controls with one parameter per control. Cutoff and LFO speed
+  sliders use logarithmic scaling. Audio is generated in Rust at 44.1 kHz
+  with an 80 ms generator buffer; this is a prototype, not a low-latency plugin.
+- MSEG, sequencers, arbitrary signal routing, module-internal DSP editing,
+  macro mappings, enclosure editing, story content, and VST export are future work.
+- Shutdown can report an `AudioStreamGeneratorPlayback` ObjectDB leak on
+  Godot 4.4.1; this also occurred in the earlier circuit prototype.
+
+## Edit with Godot
+
+`instrument_designer.tscn` contains the editable screen shell and keyboard area.
+`instrument_panel_control.tscn` is the reusable performance-control scene: edit
+its layout and style directly in Godot. Repeated module forms are currently
+created by `instrument_designer.gd`; instrument data lives in `instrument_patch.gd`.
+`instrument_audio.gd` connects the native block engine in `rust/src/instrument.rs`.
+The circuit engine remains independent.
+
+## Validation
 
 ```sh
 cargo test --manifest-path rust/Cargo.toml
+godot --headless --audio-driver Dummy --script instrument_selftest.gd
 godot --headless --audio-driver Dummy --script circuit4_selftest.gd
 godot --headless --script bench_mna.gd
 ```
 
-The self-test checks wiring, save/load, capacitor-state carryover, BJT/OTA
-behavior, all four reference matches, and game controls. The benchmark compares
-Rust and GDScript solver outputs and measures circuit processing costs.
-These checks do not establish visual quality, sound quality, or playing feel.
+The instrument self-test checks JSON roundtrips, invalid document rejection,
+module removal, stable identities, panel bindings, native note output/release,
+and design/performance synchronization. Optional rendered QA:
+`godot --audio-driver Dummy --script instrument_selftest.gd -- --render`
+writes `/tmp/instrument-panel.png` and `/tmp/instrument-design.png`.
+These checks do not establish physical MIDI compatibility or listening quality.
 
 ## Earlier spikes and solver references
 

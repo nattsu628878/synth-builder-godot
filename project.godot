@@ -11,13 +11,13 @@ config_version=5
 [application]
 
 config/name="synth-builder-godot"
-run/main_scene="res://game.tscn"
+run/main_scene="res://instrument_designer.tscn"
 config/features=PackedStringArray("4.4", "Forward Plus")
 
 [display]
 
-window/size/viewport_width=920
-window/size/viewport_height=860
+window/size/viewport_width=1120
+window/size/viewport_height=820
 
 [rendering]
 

@@ -5,6 +5,7 @@ use godot::prelude::*;
 
 mod godot_api;
 mod mna;
+mod instrument;
 
 struct SynthCircuit;
 
