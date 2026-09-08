@@ -43,6 +43,17 @@ func _run() -> void:
 		synth.note_on(60, 0.8)
 		var output: PackedVector2Array = synth.render(4096)
 		check(_peak(output) > 0.01 and _finite(output), "instrument note produces finite audible signal")
+		var wave_outputs: Array[PackedVector2Array] = []
+		for wave in 3:
+			var voice = ClassDB.instantiate("InstrumentSynthRs")
+			var osc: Dictionary = patch.oscillators[0].duplicate()
+			osc.wave = wave
+			osc.filter = false
+			voice.configure([osc], [], 0.5)
+			voice.note_on(69, 1.0)
+			wave_outputs.append(voice.render(2048))
+		check(_difference(wave_outputs[0], wave_outputs[1]) > 0.01, "integer saw selection differs from sine across native boundary")
+		check(_difference(wave_outputs[0], wave_outputs[2]) > 0.01, "integer square selection differs from sine across native boundary")
 		synth.all_notes_off()
 		for i in 10: synth.render(4096)
 		check(_peak(synth.render(512)) < 0.0001, "all notes off releases to silence")
@@ -92,3 +103,8 @@ func _finite(block: PackedVector2Array) -> bool:
 	for v in block:
 		if not is_finite(v.x) or not is_finite(v.y) or absf(v.x) > 1.0: return false
 	return true
+
+func _difference(a: PackedVector2Array, b: PackedVector2Array) -> float:
+	var difference := 0.0
+	for i in a.size(): difference = maxf(difference, absf(a[i].x - b[i].x))
+	return difference

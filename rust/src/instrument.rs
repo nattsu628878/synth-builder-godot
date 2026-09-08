@@ -157,7 +157,7 @@ fn blep(t: f64, dt: f64) -> f64 {
 fn number(d: &VarDictionary, key: &str, default: f64, min: f64, max: f64) -> f64 {
     let n = d
         .get(key)
-        .and_then(|v| v.try_to::<f64>().ok())
+        .and_then(|v| v.try_to::<f64>().ok().or_else(|| v.try_to::<i64>().ok().map(|n| n as f64)))
         .unwrap_or(default);
     if n.is_finite() {
         n.clamp(min, max)
