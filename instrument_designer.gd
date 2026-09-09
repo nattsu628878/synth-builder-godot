@@ -4,6 +4,8 @@ const Patch = preload("res://instrument_patch.gd")
 const Audio = preload("res://instrument_audio.gd")
 var patch = Patch.new()
 var engine: Node
+var routing: Node
+var modulation: Node
 var layout_edit := false
 var held_keys := {}
 var drag_control: Control
@@ -26,10 +28,21 @@ func _ready() -> void:
 	instrument_name.text_changed.connect(func(value): patch.name = value)
 	$Margin/Main/Header/Save.pressed.connect(_save)
 	$Margin/Main/Header/Load.pressed.connect(_load_dialog)
+	routing = preload("res://instrument_routing.tscn").instantiate()
+	routing.patch = patch
+	$Margin/Main/Tabs.add_child(routing)
+	$Margin/Main/Tabs.move_child(routing, 1)
+	modulation = preload("res://instrument_modulation.tscn").instantiate()
+	modulation.patch = patch
+	$Margin/Main/Tabs.add_child(modulation)
+	$Margin/Main/Tabs.move_child(modulation, 2)
+	routing.structure_changed.connect(func(): _refresh_design(); _refresh_panel(); modulation.refresh())
 	$Margin/Main/Tabs.tab_changed.connect(func(tab):
 		_stop_notes()
 		if tab == 0: _refresh_design()
 		_refresh_panel()
+		routing.refresh()
+		modulation.refresh()
 	)
 	$Margin/Main/Tabs/Panel/Toolbar/Layout.toggled.connect(func(value): layout_edit = value; _refresh_panel())
 	for i in range(13):
@@ -101,6 +114,8 @@ func _parameter(parent: Node, target: String, param: String) -> void:
 	var row := _row(parent)
 	_label(param.capitalize(), row).custom_minimum_size.x = 95
 	var spin := SpinBox.new()
+	spin.set_meta("target", target)
+	spin.set_meta("param", param)
 	var limits := _range(param)
 	spin.min_value = limits[0]
 	spin.max_value = limits[1]
@@ -119,7 +134,7 @@ func _refresh_design() -> void:
 	add_osc.disabled = patch.oscillators.size() >= 8
 	var add_lfo := _button("+ LFO", heading, func(): patch.add_lfo(); _refresh_design())
 	add_lfo.disabled = patch.modulators.size() >= 8
-	_label("Parallel oscillators → individual low-pass filters → mixer · 8 voices · global LFOs modulate cutoff", modules)
+	_label("Add modules here → wire them in Routing → assign LFOs in Modulation → play your Panel", modules)
 	for osc in patch.oscillators:
 		var box := _card(str(osc.name))
 		var row := _row(box)
@@ -128,26 +143,24 @@ func _refresh_design() -> void:
 		wave.selected = int(osc.wave)
 		wave.item_selected.connect(func(index): osc.wave = index)
 		row.add_child(wave)
-		var filter := CheckButton.new()
-		filter.text = "Individual filter"
-		filter.button_pressed = bool(osc.filter)
-		filter.toggled.connect(func(value): osc.filter = value)
-		row.add_child(filter)
 		_button("Remove oscillator", row, func(): patch.remove_oscillator(osc.id); _refresh_design(); _refresh_panel())
-		for param in ["gain", "transpose", "cutoff"]: _parameter(box, osc.id, param)
+		for param in ["gain", "transpose"]: _parameter(box, osc.id, param)
+	var add_filter := _button("+ Filter", modules, func(): patch.add_filter(); _refresh_design())
+	add_filter.disabled = patch.filters.size() >= 8
+	for filter in patch.filters:
+		var box := _card(str(filter.name))
+		var row := _row(box)
+		var enabled := CheckButton.new()
+		enabled.text = "Filter enabled (off = bypass)"
+		enabled.button_pressed = filter.enabled
+		enabled.toggled.connect(func(value): filter.enabled = value)
+		row.add_child(enabled)
+		_button("Remove filter", row, func(): patch.remove_filter(filter.id); _refresh_design(); _refresh_panel())
+		_parameter(box, filter.id, "cutoff")
 	for mod in patch.modulators:
 		var box := _card(str(mod.name) + " · sine modulation")
 		var row := _row(box)
-		_label("Filter destination", row)
-		var targets := ["all"]
-		var target := OptionButton.new()
-		target.add_item("All oscillators")
-		for osc in patch.oscillators:
-			target.add_item(str(osc.name))
-			targets.append(osc.id)
-		target.selected = maxi(0, targets.find(mod.target))
-		target.item_selected.connect(func(index): mod.target = targets[index])
-		row.add_child(target)
+		_label("Global, free-running · Depth scales all assignments from this LFO", row)
 		_button("Remove LFO", row, func(): patch.remove_lfo(mod.id); _refresh_design(); _refresh_panel())
 		for param in ["rate", "depth"]: _parameter(box, mod.id, param)
 	var master := _card("OUTPUT")
@@ -255,12 +268,14 @@ func _load_dialog() -> void:
 			return
 		var data = JSON.parse_string(file.get_as_text())
 		if not data is Dictionary or not patch.load_dict(data):
-			status.text = "Invalid instrument file; current instrument retained"
+			status.text = patch.last_error
 			dialog.queue_free()
 			return
 		instrument_name.text = patch.name
 		_refresh_design()
 		_refresh_panel()
+		routing.refresh()
+		modulation.refresh()
 		status.text = "Loaded: " + patch.name
 		dialog.queue_free()
 	)

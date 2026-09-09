@@ -1,0 +1,31 @@
+[gd_scene load_steps=2 format=3]
+[ext_resource type="Script" path="res://instrument_routing.gd" id="1"]
+[node name="Routing" type="VBoxContainer"]
+script = ExtResource("1")
+theme_override_constants/separation = 8
+[node name="Toolbar" type="HBoxContainer" parent="."]
+layout_mode = 2
+[node name="Oscillator" type="Button" parent="Toolbar"]
+layout_mode = 2
+text = "+ Oscillator"
+[node name="Filter" type="Button" parent="Toolbar"]
+layout_mode = 2
+text = "+ Filter"
+[node name="Arrange" type="Button" parent="Toolbar"]
+layout_mode = 2
+text = "Arrange"
+[node name="Hint" type="Label" parent="."]
+layout_mode = 2
+text = "Drag output → input. Multiple inputs are mixed. Right-click a wire to remove it."
+autowrap_mode = 2
+[node name="Graph" type="GraphEdit" parent="."]
+layout_mode = 2
+size_flags_vertical = 3
+custom_minimum_size = Vector2(0, 250)
+minimap_enabled = false
+show_arrange_button = false
+right_disconnects = true
+[node name="Status" type="Label" parent="."]
+layout_mode = 2
+text = ""
+autowrap_mode = 2

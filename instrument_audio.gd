@@ -27,7 +27,7 @@ func _ready() -> void:
 func _process(_delta: float) -> void:
 	if not available or patch == null:
 		return
-	_engine.call("configure", patch.oscillators, patch.modulators, patch.master_gain)
+	_engine.call("configure_graph", patch.oscillators, patch.filters, patch.routes, patch.modulators, patch.assignments, patch.master_gain)
 	var count := _playback.get_frames_available()
 	if count <= 0:
 		return
